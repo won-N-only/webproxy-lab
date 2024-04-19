@@ -2,6 +2,31 @@
  * csapp.h - prototypes and definitions for the CS:APP3e book
  */
 /* $begin csapp.h */
+
+/*
+struct stat 구조체에 대한 정의를 포함함. 
+이 구조체는 파일의 상태에 대한 정보를 저장하기 위해 사용됨. 
+ 
+구조체의 주요 멤버와 그 의미:
+__dev_t st_dev: 파일이 위치한 장치(device)의 ID입니다.
+__ino_t st_ino: 파일의 inode 번호로, 파일 시스템 내에서 파일을 유일하게 식별합니다.
+__mode_t st_mode: 파일의 모드(권한 및 타입)를 나타냅니다.
+__nlink_t st_nlink: 파일에 대한 하드 링크의 수입니다.
+__uid_t st_uid: 파일 소유자의 사용자 ID입니다.
+__gid_t st_gid: 파일 소유자의 그룹 ID입니다.
+__dev_t st_rdev: 장치 파일의 경우, 이 장치의 장치 번호입니다.
+__off_t st_size: 일반 파일의 경우, 바이트 단위의 크기입니다.
+__blksize_t st_blksize: 파일 시스템 I/O에 최적화된 블록의 크기입니다.
+__blkcnt_t st_blocks: 파일에 할당된 512바이트 블록의 수입니다.
+struct timespec st_atim, st_mtim, st_ctim: 파일의 마지막 접근 시간, 수정 시간, 상태 변경 시간을 나노초 정밀도로 저장합니다. 각각의 timespec 구조체는 초(tv_sec)와 나노초(tv_nsec)로 시간을 나타냅니다.
+추가적인 조건 컴파일:
+__USE_TIME_BITS64: 이 매크로가 정의되면, 64비트 시간 타입을 사용하는 구조체 버전이 포함됩니다.
+__USE_LARGEFILE64: 이 매크로가 정의되면, struct stat64이 정의되어, 큰 파일 크기를 지원합니다.
+특별한 주의사항:
+코드에는 여러 #ifdef와 #ifndef 지시문이 포함되어 있어, 컴파일러가 특정 조건을 만족할 때만 일부 코드를 포함하거나 제외하도록 합니다. 이는 다양한 플랫폼과 설정에 대한 호환성을 보장합니다.
+이 구조체는 파일 시스템과 관련된 시스템 호출(예: stat(), fstat())에서 반환되는 정보를 담는 데 사용됩니다. 이러한 호출을 사용하면 파일의 크기, 소유자, 권한 등을 프로그램적으로 조회할 수 있습니다.
+
+*/
 #ifndef __CSAPP_H__
 #define __CSAPP_H__
 

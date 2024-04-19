@@ -4,7 +4,8 @@
 /* $begin adder */
 #include "csapp.h"
 
-int main(void) {
+int main(void)
+{
   exit(0);
 }
 /* $end adder */
