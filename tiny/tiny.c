@@ -210,7 +210,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
     }
     else // 나머지 uri는 상대경로로 변경
       strcpy(cgiargs, "");
-    strcpy(filename, "");
+    strcpy(filename, ".");
     strcat(filename, uri);
     return 0;
   }
