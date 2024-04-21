@@ -11,25 +11,29 @@
 1. sprintf 는 printf와 유사하지만 문자열을 출력X, 특정 포맷에 맞춰 버퍼에 저장함.
   sprintf(buffer, "Age: %d", age) {buffer에 age:어쩌고 저장}
 
+3. Rio_readlineb 함수는 text line을 \n을 만날 때까지 한줄씩 읽음
+  Rio_readlineb(&rio, buffer, MAXLINE) {&rio에 MAXLINE 길이만큼 읽어서 buffer에 저장}
 
 2. Rio_writen 함수는 파일디스크립터 fd에 n바이트만큼의 데이터를 data로 씀.
   Rio_writen(fd, data, strlen(data)) {fd에 strlen(data)만큼 data를 씀 }
 
-3. Rio_readlineb 함수는 text line을 \n을 만날 때까지 한줄씩 읽음
-  Rio_readlineb(&rio, buffer, MAXLINE) {&rio에 MAXLINE 길이만큼 읽어서 buffer에 저장}
-
 4. Rio_readn
   Rio_readn(fd, buffer, 100)
- */
+  바이트 수만큼 데이터를 읽음. 요청된 바이트 수를 모두 읽을 때까지 호출...근데 버퍼없어
+
+5. rio_readinitb
+   rio_readinitb(rio_t *rp, int fd)
+   식별자 fd를 주소 rp에 위치한 rio_t 타입의 읽기 버퍼와 연결한다.
+*/
 
 /*
-
 uri의 기본 구조
 
 scheme:[//[user:password@]host[:port]][/]path[?query][#fragment]
 여기서 path 부분이 웹 서버의 리소스 경로
 예를 들어, URI가 http: // example.com :80 /path/to/resource ?345&345인 경우, /path/to/resource가 리소스의 경로
 */
+
 #include "csapp.h"
 
 void doit(int fd);
@@ -47,6 +51,7 @@ int main(int argc, char **argv)
   // connfd: cli와 통신용,클라이언트의 연결 요청을 accept() 함수로 받아들인 후 할당됨
   int listenfd;
   int connfd;
+
   // ci의 호스트, 포트 저장용
   char hostname[MAXLINE], port[MAXLINE];
 
@@ -147,8 +152,7 @@ void doit(int fd) // 여기서 fd는 위의 connfd임(listen아님)
   {
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) // 정규 파일인지, 실행권한 있는지
     {
-      clienterror(fd, filename, "403", "Forbidden",
-                  "Tiny couldn't run the CGI program");
+      clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
       return;
     }
     serve_dynamic(fd, filename, cgiargs);
@@ -232,7 +236,9 @@ filename은 초기에 "."로 설정되어 현재 디렉토리를 나타냅니다
 URI /images/logo.png가 filename에 추가되면 최종 경로는 ./images/logo.png가 됩니다. 이는 현재 디렉토리에서 images라는 하위 디렉토리 안에 있는 logo.png 파일을 가리킵니다.*/
 
     if (uri[strlen(uri) - 1] == '/') // uri가 /로 끝나면 /뒤에 home.html 추가//이거 문제에 활용
-      strcat(filename, "home.html");
+
+      strcat(filename, "adder.html"); /// 이거왜안대지 ㅜ ㅜ
+
     return -1;
   }
   else // uri에 cgi-bin있으면
@@ -263,6 +269,8 @@ void get_filetype(char *filename, char *filetype)
     strcpy(filetype, "image/gif");
   else if (strstr(filename, ".jpg"))
     strcpy(filetype, "image/jpeg");
+  else if (strstr(filename, ".mp4"))
+    strcpy(filetype, "video/mp4");
   else
     strcpy(filetype, "text/plain");
 }
@@ -282,59 +290,35 @@ void serve_static(int fd, char *filename, int filesize)
   sprintf(buf, "HTTP/1.0 200 OK\r\n");
   sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
   sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
-  // sprintf(buf, "%sConnection: close\r\n", buf);              // while을 한번돌면 close가 되고, 새로 연결하더라도 새로 connect하므로 close가 default가됨
+
+  // snprintf(buf, sizeof(buf), "%sConnection: close\r\n", buf);//서버가 각 요청 처리 후에 연결을 close하고 새 요청이 들어올 때마다 새로운 연결을 connect
+
   sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype); //  \r\n\r\n이 헤더 종료표시
 
   Rio_writen(fd, buf, strlen(buf)); // buf에서 strlen(buf) 바이트만큼 fd로 전송한다.
-  // printf("Response headers: \n");
-  //   printf("%s", buf);
-  // filename open, 식별자(파일 디스크립터) 얻어옴
+
+  printf("Response headers: \n");
+  printf("%s", buf);
+
+  // // filename open, 식별자(파일 디스크립터) 얻어옴
   srcfd = Open(filename, O_RDONLY, 0); // filename open, 식별자 얻어옴
 
-  /*요청한 파일을 가상메모리에 매핑함.
-  srcfd의 filesize만큼 시작하는 private R/O메모리에 매핑*/
-  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+  // /*요청한 파일을 가상메모리에 매핑함.
+  // srcfd의 filesize만큼 시작하는 private R/O메모리에 매핑*/
+  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+  srcp = (char *)Malloc(filesize);  // 파일 크기만큼의 메모리를 동적할당한다.
+  Rio_readn(srcfd, srcp, filesize); // filename 내용을 동적할당한 메모리에 쓴다.
 
-  // 매핑했으니 식별자 필요없어져서 close함
+  // // 매핑했으니 식별자 필요없어져서 close함
   Close(srcfd);
 
-  // 파일을 클라이언트에게 전송
-  // rio_writen은 srcp에서 시작하는 filesize만큼의 바이트를 클라이언트의 연결식별자로 복사
+  // // 파일을 클라이언트에게 전송
+  // // rio_writen은 srcp에서 시작하는 filesize만큼의 바이트를 클라이언트의 연결식별자로 복사
   Rio_writen(fd, srcp, filesize);
 
-  // 가상메모리 반환
-  Munmap(srcp, filesize); // line:netp:servestatic:munmap
-
-  /*//////////@과제11번 수정/////////// //////////// //////////// //////////// /
-   if (strcasecmp(method, "HEAD") == 0) // head메소드면 return해서 header값만 보여주게 하라.
-     return;
-   // Send response body to client
-   // open(열려고 하는 대상 파일의 이름, 파일을 열 때 적용되는 열기 옵션, 파일 열 때의 접근 권한 설명)
-   // return 파일 디스크립터
-   // O_RDONLY : 읽기 전용으로 파일 열기
-   // 즉, filename의 파일을 읽기 전용으로 열어서 식별자를 받아온다.
-   srcfd = Open(filename, O_RDONLY, 0);
-
-   // 요청한 파일을 disk에서 가상메모리 영역으로 mapping한다.
-   // mmap을 호출하면 파일 srcfd의 첫 번째 filesize 바이트를
-   // 주소 srcp에서 시작하는 사적 읽기-허용 가상메모리 영역으로 mapping
-   // 대충(말록이랑 유사한데 값도 복사해준다)
-   // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-
-   // Mmap대신 malloc 사용 -> 빈칸에 사용해야하므로 빈 공간에 메모리를 읽어야한다.
-   srcp = (char *)malloc(filesize);
-   Rio_readn(srcfd, srcp, filesize);
-
-   // 파일을 메모리로 매핑한 후에 더 이상 이 식별자는 필요 없으므로 닫기(치명적인 메모리 누수 방지)
-   Close(srcfd);
-   // 실제로 파일을 client로 전송
-   // rio_writen함수는 주소 srcp에서 시작하는 filesize를 클라이언트의 연결 식별자 fd로 복사
-   Rio_writen(fd, srcp, filesize);
-   // 매핑된 가상메모리 주소를 반환(치명적인 메모리 누수 방지)
-   // Munmap(srcp, filesize);
-   free(srcp);
- }
- */
+  // // 가상메모리 반환
+  // Munmap(srcp, filesize);
+  free(srcp);
 }
 
 // serve_dynamic은 프로세스를 fork해서 자식의 컨텍스트에서 cgi를 실행함.

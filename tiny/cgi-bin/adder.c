@@ -15,17 +15,26 @@ int main(void)
 {
   char *buf, *p;
   char arg1[MAXLINE], arg2[MAXLINE], content[MAXLINE];
-  int n1 = 0, n2 = 0;
+
+  char *num1, *num2;
+  int n1 = 0, n2 = 0, sum;
 
   // 환경 변수에서 QUERY_STRING을 가져옴
-  if ((buf = getenv("QUERY_STRING")) != NULL)
+  buf = getenv("QUERY_STRING");
+
+  // num1과 num2 값 파싱
+  num1 = strstr(buf, "num1="); // "num1="
+  if (num1)
   {
-    p = strchr(buf, '&'); // & 문자의 위치를 찾음
-    *p = '\0';            // 첫 번째 숫자와 두 번째 숫자를 분리하기 위해 NULL 문자로 바꿈
-    strcpy(arg1, buf);    // 첫 번째 숫자를 arg1에 복사
-    strcpy(arg2, p + 1);  // 두 번째 숫자를 arg2에 복사
-    n1 = atoi(arg1);      // 문자열을 정수로 변환
-    n2 = atoi(arg2);
+    num1 += 5;                   // "num1=" 문자열 다음의 숫자 시작 위치로 이동
+    num2 = strstr(buf, "num2="); // "num2="
+    if (num2)
+    {
+      num2 += 5;       // "num2=" 문자열 다음의 숫자 시작 위치로 이동
+      n1 = atoi(num1); // 첫 번째 숫자로 변환
+      n2 = atoi(num2); // 두 번째 숫자로 변환
+      sum = n1 + n2;   // 두 숫자를 더함
+    }
   }
 
   // 응답 본문 구성
