@@ -39,9 +39,9 @@ scheme:[//[user:password@]host[:port]][/]path[?query][#fragment]
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, char *method);
 void get_filetype(char *filename, char *filetype);
-void serve_dynamic(int fd, char *filename, char *cgiargs);
+void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
                  char *longmsg);
 
@@ -118,7 +118,7 @@ void doit(int fd) // 여기서 fd는 위의 connfd임(listen아님)
   // buf의 내용을 각각 method, uri, ver에 저장함.
   sscanf(buf, "%s %s %s", method, uri, version);
 
-  if (strcasecmp(method, "GET")) // method로 GET말고 다른거 받으면 에러 반환
+  if (!(strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))) // method로 GET말고 다른거 받으면 에러 반환
   {
     clienterror(fd, method, "501", "not implemented", "Tiny couldn't implement this method");
     return;
@@ -146,7 +146,7 @@ void doit(int fd) // 여기서 fd는 위의 connfd임(listen아님)
                   "Tiny couldn't read the file");
       return;
     }
-    serve_static(fd, filename, sbuf.st_size);
+    serve_static(fd, filename, sbuf.st_size, method);
   }
   else // 요청이 동적 컨텐츠이면
   {
@@ -155,7 +155,7 @@ void doit(int fd) // 여기서 fd는 위의 connfd임(listen아님)
       clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
       return;
     }
-    serve_dynamic(fd, filename, cgiargs);
+    serve_dynamic(fd, filename, cgiargs, method);
   }
 }
 
@@ -199,7 +199,7 @@ void clienterror(int fd, char *cause, char *errnum,
 // Tiny는 request header의 정보를 하나도 사용하지 않는다.
 // 요청 라인 한줄, 요청 헤더 여러줄 받는데
 // 요청 라인은 저장해주고(우리가 tiny에서 필요한 건 이거임), 요청 헤더들은 그냥 출력
-
+// 나중에 get에서 header로 바꿔보라고 이렇게한것같은데?
 void read_requesthdrs(rio_t *rp)
 {
   char buf[MAXLINE];
@@ -278,7 +278,7 @@ void get_filetype(char *filename, char *filetype)
 // Tiny는 5개의 정적 컨텐츠 지원함
 // HTML, TXT, GIF, PNG, JPEG
 // static content를 요청하면 서버가 disk에서 파일을 찾아서 메모리 영역으로 복사하고, 복사한 것을 client fd로 복사
-void serve_static(int fd, char *filename, int filesize)
+void serve_static(int fd, char *filename, int filesize, char *method)
 {
   int srcfd;
   char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -299,31 +299,34 @@ void serve_static(int fd, char *filename, int filesize)
 
   printf("Response headers: \n");
   printf("%s", buf);
+  if (strcasecmp(method, "GET") == 0)
+  {
+    {
+      // // filename open, 식별자(파일 디스크립터) 얻어옴
+      srcfd = Open(filename, O_RDONLY, 0); // filename open, 식별자 얻어옴
 
-  // // filename open, 식별자(파일 디스크립터) 얻어옴
-  srcfd = Open(filename, O_RDONLY, 0); // filename open, 식별자 얻어옴
+      // /*요청한 파일을 가상메모리에 매핑함.
+      // srcfd의 filesize만큼 시작하는 private R/O메모리에 매핑*/
+      // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+      srcp = (char *)Malloc(filesize);  // 파일 크기만큼의 메모리를 동적할당한다.
+      Rio_readn(srcfd, srcp, filesize); // filename 내용을 동적할당한 메모리에 쓴다.
 
-  // /*요청한 파일을 가상메모리에 매핑함.
-  // srcfd의 filesize만큼 시작하는 private R/O메모리에 매핑*/
-  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-  srcp = (char *)Malloc(filesize);  // 파일 크기만큼의 메모리를 동적할당한다.
-  Rio_readn(srcfd, srcp, filesize); // filename 내용을 동적할당한 메모리에 쓴다.
+      // // 매핑했으니 식별자 필요없어져서 close함
+      Close(srcfd);
 
-  // // 매핑했으니 식별자 필요없어져서 close함
-  Close(srcfd);
+      // // 파일을 클라이언트에게 전송
+      // // rio_writen은 srcp에서 시작하는 filesize만큼의 바이트를 클라이언트의 연결식별자로 복사
+      Rio_writen(fd, srcp, filesize);
 
-  // // 파일을 클라이언트에게 전송
-  // // rio_writen은 srcp에서 시작하는 filesize만큼의 바이트를 클라이언트의 연결식별자로 복사
-  Rio_writen(fd, srcp, filesize);
-
-  // // 가상메모리 반환
-  // Munmap(srcp, filesize);
-  free(srcp);
+      // // 가상메모리 반환
+      // Munmap(srcp, filesize);
+      free(srcp);
+    }
+  }
 }
-
 // serve_dynamic은 프로세스를 fork해서 자식의 컨텍스트에서 cgi를 실행함.
 // execve는
-void serve_dynamic(int fd, char *filename, char *cgiargs)
+void serve_dynamic(int fd, char *filename, char *cgiargs, char *method)
 {
   char buf[MAXLINE], *emptylist[] = {NULL};
 
@@ -345,7 +348,8 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
     // Real server would set all CGI vars here(실제 서버는 여기서 다른 CGI 환경변수도 설정)
 
     setenv("QUERY_STRING", cgiargs, 1); // 환경변수에 (uri에서 받아온 cgi)를 넣음 (set-env임)
-                                        ///////////// ////// setenv로 request method 이용 가능할듯?///////////////// ////// /
+                                        ///////////// ////// setenv로 request method 이용 가능할듯?////////////////////////
+    setenv("METHOD", method, 1);        // 환경변수에 (uri에서 받아온 cgi)를 넣음 (set-env임)
 
     // 자식 프로세스의 표준 출력(STDOUT)을 클라이언트와 연결된 소켓 파일 디스크립터(fd)로 변경.
     // 이렇게 하면 CGI 스크립트의 출력이 직접 클라이언트로 전송됨.(소켓으로 바로감)

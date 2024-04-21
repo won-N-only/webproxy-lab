@@ -13,7 +13,7 @@ fflush(stdout)으로 출력 버퍼를 비워 서버로 데이터를 전송.
 
 int main(void)
 {
-  char *buf, *p;
+  char *buf, *p, *method;
   char arg1[MAXLINE], arg2[MAXLINE], content[MAXLINE];
 
   char *num1, *num2;
@@ -21,6 +21,7 @@ int main(void)
 
   // 환경 변수에서 QUERY_STRING을 가져옴
   buf = getenv("QUERY_STRING");
+  method = getenv("METHOD");
 
   // num1과 num2 값 파싱
   num1 = strstr(buf, "num1="); // "num1="
@@ -52,7 +53,10 @@ int main(void)
   printf("Content-type: text/html\r\n\r\n");
 
   // HTTP 응답 본문 출력
-  printf("%s", content);
+  if (strcasecmp(method, "GET") == 0)
+  {
+    printf("%s", content);
+  }
   fflush(stdout); // 출력 버퍼를 강제로 비움
 
   exit(0);
