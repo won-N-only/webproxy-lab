@@ -47,3 +47,10 @@ nop-server.py
 tiny
     Tiny Web server from the CS:APP text
 
+
+tiny와 proxy 프로그램을 각 포트에서 실행시킨 상태에서 테스트.
+# 형식
+curl --proxy {http://localhost:proxy포트} {http://localhost:tiny포트}
+
+# 예시
+curl --proxy http://localhost:7000/ http://localhost:8000/
