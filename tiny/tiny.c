@@ -32,6 +32,17 @@ uri의 기본 구조
 scheme:[//[user:password@]host[:port]][/]path[?query][#fragment]
 여기서 path 부분이 웹 서버의 리소스 경로
 예를 들어, URI가 http: // example.com :80 /path/to/resource ?345&345인 경우, /path/to/resource가 리소스의 경로
+
+헤더의 구성요소
+Content-Type: 응답 본문의 미디어 타입. 예: text/html, application/json.
+Content-Length: 응답 본문의 길이를 바이트 단위로 나타냄
+Set-Cookie: 클라이언트에 쿠키를 설정하기 위한 헤더.
+Cache-Control: 캐싱 메커니즘을 제어하기 위한 지시어.
+Location: 3xx 상태 코드의 경우, 리디렉션할 URL을 지정
+Connection: 해당 연결에 대한 옵션을 명시 (예: keep-alive, close).
+ETag: 특정 버전의 리소스를 식별하는 태그.
+Expires: 리소스가 만료되는 시간.
+Server: 응답을 보내는 서버의 소프트웨어 정보.
 */
 
 #include "csapp.h"
@@ -39,11 +50,10 @@ scheme:[//[user:password@]host[:port]][/]path[?query][#fragment]
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize, char *method);
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 void get_filetype(char *filename, char *filetype);
+void serve_static(int fd, char *filename, int filesize, char *method);
 void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
-                 char *longmsg);
 
 int main(int argc, char **argv)
 {
@@ -71,6 +81,13 @@ int main(int argc, char **argv)
 
   // 무한 while문으로 서버 항상 열어놓음.(무한 서버 루프)
   // close 있을 때 까지 서버 안닫힘
+
+  /*
+  **getaddrinfo()**는 주소 정보를 조회하여 네트워크 프로그래밍에 사용할 수 있는 주소 구조체를 제공하는 데 사용되며, 주로 연결 설정 초기 단계에서 사용됩니다.
+
+  **getnameinfo()**는 주어진 네트워크 주소로부터 호스트 이름과 서비스 이름을 추출하는 데 사용되며, 연결 후 클라이언트 정보를 인간이 이해할 수 있는 형태로 변환하는 데 사용됩니다.
+  */
+
   while (1)
   {
     clientlen = sizeof(clientaddr);
@@ -118,7 +135,7 @@ void doit(int fd) // 여기서 fd는 위의 connfd임(listen아님)
   // buf의 내용을 각각 method, uri, ver에 저장함.
   sscanf(buf, "%s %s %s", method, uri, version);
 
-  if (!(strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))) // method로 GET말고 다른거 받으면 에러 반환
+  if ((strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))) // method로 GET말고 다른거 받으면 에러 반환
   {
     clienterror(fd, method, "501", "not implemented", "Tiny couldn't implement this method");
     return;
@@ -230,6 +247,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
     strcpy(cgiargs, "");   // cgiargs 인자 string을 지운다.
     strcpy(filename, "."); // 상대 리눅스 경로이름으로 변환 ex) '.'
     strcat(filename, uri); // 상대 리눅스 경로이름으로 변환 ex) '.' + '/index.html'
+
     /*URI 예시: /images/logo.png
 서버 내 파일 경로 변환:
 filename은 초기에 "."로 설정되어 현재 디렉토리를 나타냅니다.
@@ -291,7 +309,10 @@ void serve_static(int fd, char *filename, int filesize, char *method)
   sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
   sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
 
-  // snprintf(buf, sizeof(buf), "%sConnection: close\r\n", buf);//서버가 각 요청 처리 후에 연결을 close하고 새 요청이 들어올 때마다 새로운 연결을 connect
+  // snprintf는 버퍼의 사이즈를 초과하는 data 쓰지않음. 안정성좋아
+  // snprintf(buf, sizeof(buf), "%sConnection: close\r\n", buf); // 서버가 각 요청 처리 후에 연결을 close하고 새 요청이 들어올 때마다 새로운 연결을 connect
+  // http니까 연결 할떄마다 끊기고 다시하고 그거하는거임
+  sprintf(buf, "%sConnection: close\r\n", buf);
 
   sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype); //  \r\n\r\n이 헤더 종료표시
 
@@ -333,6 +354,7 @@ void serve_dynamic(int fd, char *filename, char *cgiargs, char *method)
   // Return first part of HTTP response
   // 클라이언트에 성공을 알려주는 응답 라인을 보내는 것으로 시작
   // 클라이언트에 서버 준비됐다고 응답함.
+  // 동적이라 뭐가 나올지몰라서 type, size 안보냄
   sprintf(buf, "HTTP/1.0 200 OK\r\n");
   Rio_writen(fd, buf, strlen(buf));
   sprintf(buf, "Server: Tiny Web Server\r\n");
@@ -352,6 +374,7 @@ void serve_dynamic(int fd, char *filename, char *cgiargs, char *method)
     setenv("METHOD", method, 1);        // 환경변수에 (uri에서 받아온 cgi)를 넣음 (set-env임)
 
     // 자식 프로세스의 표준 출력(STDOUT)을 클라이언트와 연결된 소켓 파일 디스크립터(fd)로 변경.
+    // fd = STDOUT_FD(=1)로변경하는거
     // 이렇게 하면 CGI 스크립트의 출력이 직접 클라이언트로 전송됨.(소켓으로 바로감)
     // 자식 프로세스가 get_env하기 전에 실행됨
     Dup2(fd, STDOUT_FILENO);
