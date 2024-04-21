@@ -1,28 +1,30 @@
 #include <stdio.h>
 #include "csapp.h"
-
+//////////////////////////////////////전역변수 선언부/////////////////////////////////////
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
-/* You won't lose style points for including this long line in your code */
 
+/* You won't lose style points for including this long line in your code */
 static const char *user_agent_header =
     "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
     "Firefox/10.0.3\r\n";
 
+//////////////////////////////////////함수 선언부/////////////////////////////////////
 void doit(int connfd);
 void parse_uri(char *uri, char *hostname, char *path, int *port);
 void make_http_header(char *http_header, char *hostname, char *path, char *port, rio_t *client_rio);
-void clienterror(int fd, char *cause, char *errnum,
-                 char *shortmsg, char *longmsg);
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void *thread(void *vargp);
 
+//////////////////////////////////////코드 시작/////////////////////////////////////
 int main(int argc, char **argv)
 {
-  int listenfd, connfd;
+  int listenfd, *connfdp;
   socklen_t clientlen;
   char hostname[MAXLINE], port[MAXLINE];
   struct sockaddr_storage clientaddr;
-
+  pthread_t tid;
   printf("%s", user_agent_header);
 
   // argc는 인자의 갯수를 나타냄. argc!=2면 (ip,port)가 들어온게 아니므로 exit
@@ -41,16 +43,25 @@ int main(int argc, char **argv)
     clientlen = sizeof(clientaddr);
 
     // 클라이언트 연결 수락 하고 클라 정보 얻어옴
-    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-
+    connfdp = Malloc(sizeof(int));
+    *connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
     // clientaddr의 구조체에 대응되는 hostname, port를 작성한다.=
     Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
     printf("Accepted connection from (%s, %s)\n", hostname, port);
 
-    doit(connfd);
-    Close(connfd);
+    Pthread_create(&tid, NULL, thread, connfdp);
   }
   return 0;
+}
+
+void *thread(void *vargp)
+{
+  int connfd = *((int *)vargp);
+  Pthread_detach(pthread_self());
+  Free(vargp);
+  doit(connfd);
+  Close(connfd);
+  return NULL;
 }
 
 void doit(int connfd)
@@ -206,7 +217,7 @@ void clienterror(int fd, char *cause, char *errnum,
 
 void parse_uri(char *uri, char *hostname, char *path, int *port)
 {
-  *port = 80;                    // 기본 HTTP 포트 설정
+  *port = 80;                  // 기본 HTTP 포트 설정
   char *p = strstr(uri, "//"); // "http://" 이후를 찾기
   if (p != NULL)
     p += 2; // "http://" 이후의 문자열로 이동
