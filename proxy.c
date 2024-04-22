@@ -5,68 +5,28 @@
 //////////////////////////////////////주의사항//////////////////////////////////////
 /* 실행 전 반드시 proxy.c, proxy_cache.h 두 파일을 전부 받아주세요.*/
 
+// typedef struct cache_p
+// {
+//   int key;
+//   struct cache_p *left, *right;
+// } cache_p;
 
+// typedef struct
+// {
+//   cache_p *head;
+//   cache_p *foot; // for sentinel
+// } cache_list;
 
+// cache_list *new_rbtree()
+// {
+//   cache_list *t = (cache_list *)calloc(1, sizeof(cache_list));
+//   cache_p *nil = (cache_p *)calloc(1, sizeof(cache_p));
 
+//   t->foot = nil;
+//   t->head = nil;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+//   return t;
+// }
 
 //////////////////////////////////////전역변수 선언부//////////////////////////////////////
 /* Recommended max cache and object sizes */
@@ -81,7 +41,7 @@ static const char *user_agent_header =
 //////////////////////////////////////함수 선언부//////////////////////////////////////
 void *thread(void *vargp);
 void doit(int connfd);
-void parse_uri(char *uri, char *hostname, char *path, int *port);
+void parse_uri(char *uri, char *hostname, char *path, char *port);
 void make_http_header(char *http_header, char *hostname, char *path, rio_t *client_rio);
 void error_find(char *method, char *uri, char *version, int fd);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
@@ -155,52 +115,34 @@ void *thread(void *vargp)
 void doit(int cli_connfd)
 {
   rio_t cli_rio, svr_rio;
-  int svr_connfd, port;
+  int svr_connfd;
   char method[MAXLINE], uri[MAXLINE], version[MAXLINE],
-      hostname[MAXLINE], buf[MAXLINE], path[MAXLINE], http_header[MAXLINE];
+      hostname[MAXLINE], buf[MAXLINE], path[MAXLINE], port[MAXLINE], http_header[MAXLINE];
 
-  // 식별자 fd를 rio_t타입의 empty한 읽기버퍼 rio와 연결
-  // 클라이언트용 소켓을 cli_rio와 연결
-  rio_readinitb(&cli_rio, cli_connfd); // CSAPP pic10.8 참조
+  rio_readinitb(&cli_rio, cli_connfd);
 
-  // 소켓에 아무것도 없으면 return
   if (!rio_readlineb(&cli_rio, buf, MAXLINE))
     return;
 
-  printf("REQUESTED HEADERS: \n");
-  printf("%s", buf);
+  sscanf(buf, "%s %s %s", method, uri, version);
+  if (strstr(uri, "favicon.ico"))
+  {
+    clienterror(cli_connfd, method, "400", "Bad Request", "Server need http:// to proxy.");
+    return;
+  }
+  // error_find(method, uri, version, cli_connfd);
 
-  // buf의 내용을 각각 method, uri, ver에 저장함.
-  // http://%s << 이렇게하면 %s에 http:// 뒤부터 들어감
-  sscanf(buf, "%s http://%s %s", method, uri, version);
-
-  // cli에서 일어날 수 있는 error 검증
-  error_find(method, uri, version, cli_connfd);
-
-  // uri파싱(uri를 hostname, path, port에 나눠 담음)
-  parse_uri(uri, hostname, path, &port);
-
-  // (int) port를 (str)로 바꿔서 Open_clientfd
-  char port_to_str[100];
-  sprintf(port_to_str, "%d", port);
-  svr_connfd = Open_clientfd(hostname, port_to_str); // 서버 통신 소켓 엶
-
-  // 파싱한걸 한줄짜리 헤더로 만듦
+  // `port` is now directly used as a string
+  svr_connfd = Open_clientfd(hostname, port);
   make_http_header(http_header, hostname, path, &cli_rio);
-
-  // 서버에 요청 헤더 전송
   Rio_writen(svr_connfd, http_header, strlen(http_header));
-
-  //  \r\n \r\n 나올때까지 소켓에서 읽어옴
   int n;
   Rio_readinitb(&svr_rio, svr_connfd);
   while ((n = Rio_readlineb(&svr_rio, buf, MAXLINE)) != 0)
   {
-    printf(" %d bytes send\n", n); // echo
     Rio_writen(cli_connfd, buf, n);
   }
 
-  // 통신 끝났으니 소켓 닫음
   Close(svr_connfd);
 }
 
@@ -234,7 +176,7 @@ void make_http_header(char *http_header, char *hostname, char *path, rio_t *clie
   return;
 }
 
-void parse_uri(char *uri, char *hostname, char *path, int *port)
+void parse_uri(char *uri, char *hostname, char *path, char *port)
 {
   /*
   uri는 다음과 같은 구조라 가정함
@@ -242,21 +184,30 @@ void parse_uri(char *uri, char *hostname, char *path, int *port)
   https://    sili    @www.naver.com   :80     /forum/questions    ?search=jungle    #search
   */
 
-  *port = 80; // 포트가 지정되어 있지 않을 때를 대비해 기본 HTTP 포트 설정
+  // strcpy(port, "8080"); // 포트가 지정되어 있지 않을 때를 대비해 기본 HTTP 포트 설정
 
   char *p = uri; // uri 구분용 포인터, "http://" 이 없으니 처음부터 시작 (doit()의 line:88 참조.)
 
+  if (strstr(uri, "http://"))
+    p = strstr(uri, "http://") + 7;
+  else
+    p += 1;
+
   // '/'는 int다...
-  char *p2 = strstr(p, ":"); // p2는 포트 시작지점 포인터
+  char *p2 = strchr(p, ':'); // p2는 포트 시작지점 포인터
 
   // 포트번호가 uri안에 있을 때
   if (p2 != NULL)
   {
-    *p2 = '\0'; // 포트 번호 시작 지점에서 문자열 분리
-
+    *p2 = '\0';                // 포트 번호 시작 지점에서 문자열 분리
     sscanf(p, "%s", hostname); // 호스트네임 파싱
 
-    sscanf(p2 + 1, "%d%s", port, path); // '\0' 이후의 포트 번호와 경로(path) 파싱
+    char *p3 = strchr(p2 + 1, '/'); // p2는 포트 시작지점 포인터
+    *p3 = '\0';
+
+    sscanf(p2 + 1, "%s", port); // '\0' 이후의 포트 번호와 경로(path) 파싱
+    *p3 = '/';
+    sscanf(p3, "%s", path); // '\0' 이후의 포트 번호와 경로(path) 파싱
   }
 
   else // 포트번호가 없을 때
@@ -298,6 +249,20 @@ void error_find(char *method, char *uri, char *version, int fd)
   if (strlen(version) == 0) // version 잘못됐으면 || (strchr(version, '/') == NULL
   {
     clienterror(fd, method, "400", "Bad Request", "The request could not be understood by the server due to malformed version syntax");
+    return;
+  }
+
+  // URI 길이 검사(길이 10kB넘으면 뇌절)
+  if (strlen(uri) > 10240)
+  {
+    clienterror(fd, method, "414", "URI Too Long", "The URI requested is too long for the server to process.");
+    return;
+  }
+
+  // 버전 검사
+  if (strcmp(version, "HTTP/1.0") && strcmp(version, "HTTP/1.1"))
+  {
+    clienterror(fd, method, "505", "HTTP Version Not Supported", "The server does not support, or refuses to support, the HTTP protocol version that was used in the request message.");
     return;
   }
 }
