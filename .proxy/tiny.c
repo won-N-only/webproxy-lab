@@ -313,6 +313,7 @@ void serve_static(int fd, char *filename, int filesize, char *method)
   // snprintf(buf, sizeof(buf), "%sConnection: close\r\n", buf); // 서버가 각 요청 처리 후에 연결을 close하고 새 요청이 들어올 때마다 새로운 연결을 connect
   // http니까 연결 할떄마다 끊기고 다시하고 그거하는거임
   sprintf(buf, "%sConnection: close\r\n", buf);
+  sprintf(buf, "%sProxy-Connection: close\r\n", buf);
 
   sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype); //  \r\n\r\n이 헤더 종료표시
 
