@@ -85,7 +85,8 @@ void doit(int connfd)
   printf("%s", buf);
 
   // buf의 내용을 각각 method, uri, ver에 저장함.
-  sscanf(buf, "%s %s %s", method, uri, version);
+  // http://%s << 이렇게하면 %s에 http:// 뒤부터 들어감
+  sscanf(buf, "%s http://%s %s", method, uri, version);
 
   // error 검증시간~
   // err code는 https://datatracker.ietf.org/doc/html/rfc1945 참고함.
@@ -110,10 +111,12 @@ void doit(int connfd)
   // uri파싱해서 server에 보내야함
   parse_uri(uri, hostname, path, &port);
 
+  // int port를 str로 바꿔서 Open_clientfd함
   char port_to_str[100];
   sprintf(port_to_str, "%d", port);
   svr_connfd = Open_clientfd(hostname, port_to_str);
 
+  // Open_clientfd가 실패하면
   if (svr_connfd < 0)
   {
     printf("connection failed\n");
@@ -125,19 +128,18 @@ void doit(int connfd)
   Rio_readinitb(&svr_rio, svr_connfd);
   Rio_writen(svr_connfd, http_header, strlen(http_header));
 
-  /*receive message from end server and send to the client*/
-  size_t n;
-
-  //\r\n\r\n 나올때까지 read함
+  //  \r\n\r\n 나올때까지 read함
+  int n;
   while ((n = Rio_readlineb(&svr_rio, buf, MAXLINE)) != 0)
   {
-    printf(" %ld bytes send\n", n);
+    printf(" %d bytes send\n", n); // echo
     Rio_writen(connfd, buf, n);
   }
 
   Close(svr_connfd);
 }
 
+// 헤더 만들기
 void make_http_header(char *http_header, char *hostname, char *path, char *port, rio_t *client_rio)
 {
   char buf[MAXLINE], request_header[MAXLINE], other_header[MAXLINE], host_header[MAXLINE];
@@ -145,7 +147,6 @@ void make_http_header(char *http_header, char *hostname, char *path, char *port,
   // 인자 합쳐줌
   sprintf(request_header, "GET %s HTTP/1.0\r\n", path);
 
-  /*get other request header for client rio and change it */
   while (Rio_readlineb(client_rio, buf, MAXLINE) > 0)
   {
     if (!strcmp(buf, "\r\n")) /// EOF판별
@@ -156,23 +157,17 @@ void make_http_header(char *http_header, char *hostname, char *path, char *port,
       strcpy(host_header, buf);
       continue;
     }
+  }
 
-    if (!strncasecmp(buf, "Connection", strlen("Connection")) && !strncasecmp(buf, "Proxy-Connection", strlen("Proxy-Connection")) && !strncasecmp(buf, "User-Agent", strlen("User-Agent")))
-    {
-      strcat(other_header, buf);
-    }
-  }
   if (strlen(host_header) == 0)
-  {
     sprintf(host_header, "Host: %s\r\n", hostname);
-  }
-  sprintf(http_header, "%s%s%s%s%s%s%s",
+
+  sprintf(http_header, "%s%s%s%s%s%s",
           request_header,
           host_header,
           "Connection: close\r\n",
           "Proxy-Connection: close\r\n",
           user_agent_header,
-          other_header,
           "\r\n");
 
   return;
@@ -195,34 +190,32 @@ void clienterror(int fd, char *cause, char *errnum,
   sprintf(body, "%s<hr><em>The Tiny Web server</em>\r\n", body);
 
   // 클라이언트에게 HTTP 응답 헤더 작성 시작
-  // 상태 라인 설정, 예: "HTTP/1.0 404 Not Found"
   sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
 
   // 헤더 정보를 소켓을 통해 클라이언트에 전송
   Rio_writen(fd, buf, strlen(buf));
 
-  // 컨텐츠 타입 헤더 설정, HTML 문서임을 명시
+  // 컨텐츠 타입 HTML임
   sprintf(buf, "Content-type: text/html\r\n");
 
   // 헤더 정보를 소켓을 통해 클라이언트에 전송
   Rio_writen(fd, buf, strlen(buf));
 
-  // 컨텐츠 길이 헤더 설정, HTML 본문의 길이를 바이트 단위로 명시
+  // HTML 본문의 길이.. 하고 끝냄
   sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
 
-  // 헤더 정보와 HTML 본문을 소켓을 통해 클라이언트에 전송
+  // 헤더 정보와 HTML 본문을 클라이언트에 전송
   Rio_writen(fd, buf, strlen(buf));
   Rio_writen(fd, body, strlen(body));
 }
 
 void parse_uri(char *uri, char *hostname, char *path, int *port)
 {
-  *port = 80;                  // 기본 HTTP 포트 설정
-  char *p = strstr(uri, "//"); // "http://" 이후를 찾기
-  if (p != NULL)
-    p += 2; // "http://" 이후의 문자열로 이동
-  else
-    p = uri; // "http://"이 없으면 처음부터 시작
+  *port = 80; // 기본 HTTP 포트 설정
+  char *p;
+
+  // doit_line:88 참조
+  p = uri; // "http://"이 없으면 처음부터 시작
 
   // '/'는 int다...
   char *p2 = strstr(p, ":");
@@ -236,6 +229,7 @@ void parse_uri(char *uri, char *hostname, char *path, int *port)
   else
   {
     p2 = strstr(p, "/");
+
     if (p2 != NULL)
     {
       *p2 = '\0';                // 경로 시작 지점에서 문자열 분리
@@ -243,10 +237,9 @@ void parse_uri(char *uri, char *hostname, char *path, int *port)
       *p2 = '/';                 // 원래 문자열 복원
       sscanf(p2, "%s", path);    // 경로 파싱
     }
+
     else
-    {
       sscanf(p, "%s", hostname); // 호스트네임만 있을 경우 파싱
-    }
   }
   return;
 }
