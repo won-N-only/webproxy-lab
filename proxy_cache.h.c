@@ -1,19 +1,16 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include "csapp.h"
 
 typedef struct CacheNode
 {
-  char *url;      // URL as key
-  char *response; // HTTP response data
+  char *url;
+  char *response;
   struct CacheNode *prev, *next;
 } CacheNode;
 
 typedef struct
 {
   CacheNode *head, *tail;
-  int count;        // Current count of nodes in the cache
-  int max_capacity; // Maximum capacity of the cache
+  int count;
+  int max_capacity;
 } CacheList;
 
 CacheList *create_cache(int capacity)
@@ -24,6 +21,7 @@ CacheList *create_cache(int capacity)
   cache->max_capacity = capacity;
   return cache;
 }
+
 void access_cache(CacheList *cache, char *url, char *response)
 {
   CacheNode *node = cache->head;
@@ -59,7 +57,6 @@ void access_cache(CacheList *cache, char *url, char *response)
     node = node->next;
   }
 
-  // Not found, create new node
   CacheNode *new_node = malloc(sizeof(CacheNode));
   new_node->url = strdup(url);
   new_node->response = strdup(response);
@@ -79,7 +76,6 @@ void access_cache(CacheList *cache, char *url, char *response)
 
   cache->count++;
 
-  // Remove least recently used element if over capacity
   if (cache->count > cache->max_capacity)
   {
     CacheNode *to_delete = cache->tail;
@@ -94,6 +90,7 @@ void access_cache(CacheList *cache, char *url, char *response)
     cache->count--;
   }
 }
+
 void free_cache(CacheList *cache)
 {
   CacheNode *current = cache->head;
