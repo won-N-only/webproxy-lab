@@ -196,17 +196,17 @@ int Open_clientfd(char *hostname, char *port);
 int Open_listenfd(char *port);
 
 //////////////////////////////////////////////////////////////////
-const void print_log(char *desc, char *text)
-{
-    FILE *fp = fopen("output.log", "a");
+// const void print_log(char *desc, char *text)
+// {
+//     FILE *fp = fopen("output.log", "a");
 
-    fprintf(fp, "====================%s====================\n%s", desc, text);
+//     fprintf(fp, "====================%s====================\n%s", desc, text);
 
-    if (text[strlen(text) - 1] != '\n')
-        fprintf(fp, "\n");
+//     if (text[strlen(text) - 1] != '\n')
+//         fprintf(fp, "\n");
 
-    fclose(fp);
-}
+//     fclose(fp);
+// }
 //////////////////////////////////////////////////////////////////
 #endif /* __CSAPP_H__ */
 /* $end csapp.h */

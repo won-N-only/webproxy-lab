@@ -46,6 +46,21 @@ void make_http_header(char *http_header, char *hostname, char *path, rio_t *clie
 void error_find(char *method, char *uri, char *version, int fd);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
+/*
+ * print_log - 로그 파일 작성을 위한 함수
+ */
+// const void print_log(char *desc, char *text)
+// {
+//   FILE *fp = fopen("output.log", "a");
+
+//   fprintf(fp, "====================%s====================\n%s", desc, text);
+
+//   if (text[strlen(text) - 1] != '\n')
+//     fprintf(fp, "\n");
+
+//   fclose(fp);
+// }
+
 //////////////////////////////////////코드 시작//////////////////////////////////////
 
 int main(int argc, char **argv)
@@ -119,30 +134,35 @@ void doit(int cli_connfd)
   char method[MAXLINE], uri[MAXLINE], version[MAXLINE],
       hostname[MAXLINE], buf[MAXLINE], path[MAXLINE], port[MAXLINE], http_header[MAXLINE];
 
+  // cli요청 송신
   rio_readinitb(&cli_rio, cli_connfd);
-
   if (!rio_readlineb(&cli_rio, buf, MAXLINE))
     return;
 
+  // 요청헤더 method, uri, version에 나눠담음
   sscanf(buf, "%s %s %s", method, uri, version);
-  if (strstr(uri, "favicon.ico"))
-  {
-    clienterror(cli_connfd, method, "400", "Bad Request", "Server need http:// to proxy.");
-    return;
-  }
-  // error_find(method, uri, version, cli_connfd);
 
-  // `port` is now directly used as a string
+  // 파비콘 ^^
+  if (strstr(uri, "favicon.ico"))
+    return;
+  // 에러 처리
+  error_find(method, uri, version, cli_connfd);
+
+  // uri 파싱
+  parse_uri(uri, hostname, path, port);
+
+  // 서버fd open하고 요청 보냄
   svr_connfd = Open_clientfd(hostname, port);
   make_http_header(http_header, hostname, path, &cli_rio);
   Rio_writen(svr_connfd, http_header, strlen(http_header));
+
+  // 서버의 응답 받음
   int n;
   Rio_readinitb(&svr_rio, svr_connfd);
   while ((n = Rio_readlineb(&svr_rio, buf, MAXLINE)) != 0)
-  {
     Rio_writen(cli_connfd, buf, n);
-  }
 
+  // 서버fd 닫음
   Close(svr_connfd);
 }
 
@@ -160,7 +180,6 @@ void make_http_header(char *http_header, char *hostname, char *path, rio_t *clie
     strcpy(host_header, buf);
 
   // 만약 host 못찾았으면 hostname에서 들고옴
-  // 이거근데 안찾고 들고오기만해도 되는거아닌가.. ?
   if (strlen(host_header) == 0)
     sprintf(host_header, "Host: %s\r\n", hostname);
 
@@ -193,7 +212,7 @@ void parse_uri(char *uri, char *hostname, char *path, char *port)
   else
     p += 1;
 
-  // '/'는 int다...
+  // '/'는 int다..
   char *p2 = strchr(p, ':'); // p2는 포트 시작지점 포인터
 
   // 포트번호가 uri안에 있을 때
@@ -282,16 +301,12 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
   sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
   sprintf(body, "%s<hr><em>The Tiny Web server</em>\r\n", body);
 
-  // 클라이언트에게 HTTP 응답 헤더 작성
+  // 클라이언트에게 HTTP 응답 헤더 작성, 전송
   sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-
-  // 헤더 정보를 소켓을 통해 클라이언트에 전송
   Rio_writen(fd, buf, strlen(buf));
 
-  // 컨텐츠 타입 HTML임
+  // 컨텐츠 타입 HTML
   sprintf(buf, "Content-type: text/html\r\n");
-
-  // 헤더 정보를 소켓을 통해 클라이언트에 전송
   Rio_writen(fd, buf, strlen(buf));
 
   // HTML 본문의 길이.. 하고 끝냄
