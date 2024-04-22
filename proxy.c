@@ -1,6 +1,74 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "csapp.h"
-//////////////////////////////////////전역변수 선언부/////////////////////////////////////
+// #include "proxy_cache.h"
+//////////////////////////////////////주의사항//////////////////////////////////////
+/* 실행 전 반드시 proxy.c, proxy_cache.h 두 파일을 전부 받아주세요.*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////////////////////////////////전역변수 선언부//////////////////////////////////////
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
@@ -10,15 +78,15 @@ static const char *user_agent_header =
     "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
     "Firefox/10.0.3\r\n";
 
-//////////////////////////////////////함수 선언부/////////////////////////////////////
-void doit(int connfd);
+//////////////////////////////////////함수 선언부//////////////////////////////////////
 void *thread(void *vargp);
+void doit(int connfd);
 void parse_uri(char *uri, char *hostname, char *path, int *port);
 void make_http_header(char *http_header, char *hostname, char *path, rio_t *client_rio);
 void error_find(char *method, char *uri, char *version, int fd);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
-//////////////////////////////////////코드 시작/////////////////////////////////////
+//////////////////////////////////////코드 시작//////////////////////////////////////
 
 int main(int argc, char **argv)
 {
