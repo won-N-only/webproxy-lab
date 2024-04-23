@@ -1,32 +1,7 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include "csapp.h"
-// #include "proxy_cache.h"
 //////////////////////////////////////주의사항//////////////////////////////////////
 /* 실행 전 반드시 proxy.c, proxy_cache.h 두 파일을 전부 받아주세요.*/
-
-// typedef struct cache_p
-// {
-//   int key;
-//   struct cache_p *left, *right;
-// } cache_p;
-
-// typedef struct
-// {
-//   cache_p *head;
-//   cache_p *foot; // for sentinel
-// } cache_list;
-
-// cache_list *new_rbtree()
-// {
-//   cache_list *t = (cache_list *)calloc(1, sizeof(cache_list));
-//   cache_p *nil = (cache_p *)calloc(1, sizeof(cache_p));
-
-//   t->foot = nil;
-//   t->head = nil;
-
-//   return t;
-// }
+#include "proxy_cache.h"
+#include <stdio.h>
 
 //////////////////////////////////////전역변수 선언부//////////////////////////////////////
 /* Recommended max cache and object sizes */
@@ -46,29 +21,14 @@ void make_http_header(char *http_header, char *hostname, char *path, rio_t *clie
 void error_find(char *method, char *uri, char *version, int fd);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
-/*
- * print_log - 로그 파일 작성을 위한 함수
- */
-// const void print_log(char *desc, char *text)
-// {
-//   FILE *fp = fopen("output.log", "a");
-
-//   fprintf(fp, "====================%s====================\n%s", desc, text);
-
-//   if (text[strlen(text) - 1] != '\n')
-//     fprintf(fp, "\n");
-
-//   fclose(fp);
-// }
-
 //////////////////////////////////////코드 시작//////////////////////////////////////
 
 int main(int argc, char **argv)
 {
   int listenfd, *cli_connfd;
-  socklen_t clientlen;
   char hostname[MAXLINE], port[MAXLINE];
   struct sockaddr_storage clientaddr;
+  socklen_t clientlen = sizeof(clientaddr);
   pthread_t tid;
   printf("%s", user_agent_header);
 
@@ -82,12 +42,13 @@ int main(int argc, char **argv)
   // Open_listenfd는 getaddrinfo, socket, bind, listen 기능을 순차적으로 실행하는 함수
   // listen 소켓 엶
   listenfd = Open_listenfd(argv[1]);
-
+  
+  //캐시 리스트 초기화
+  init_cache();
+  
   // 무한 while문으로 서버 항상 열어놓음.(무한 서버 루프)
   while (1)
   {
-    clientlen = sizeof(clientaddr);
-
     // 클라이언트와 통신하는 소켓 만들고 정보 얻음
     cli_connfd = Malloc(sizeof(int));
     *cli_connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
@@ -145,11 +106,12 @@ void doit(int cli_connfd)
   // 파비콘 ^^
   if (strstr(uri, "favicon.ico"))
     return;
+
   // 에러 처리
   error_find(method, uri, version, cli_connfd);
 
   // uri 파싱
-  parse_uri(uri, hostname, path, port);
+  parse_uri(uri, hostname, port, path);
 
   // 서버fd open하고 요청 보냄
   svr_connfd = Open_clientfd(hostname, port);
@@ -195,7 +157,7 @@ void make_http_header(char *http_header, char *hostname, char *path, rio_t *clie
   return;
 }
 
-void parse_uri(char *uri, char *hostname, char *path, char *port)
+void parse_uri(char *uri, char *hostname, char *port, char *path)
 {
   /*
   uri는 다음과 같은 구조라 가정함
@@ -203,48 +165,17 @@ void parse_uri(char *uri, char *hostname, char *path, char *port)
   https://    sili    @www.naver.com   :80     /forum/questions    ?search=jungle    #search
   */
 
-  // strcpy(port, "8080"); // 포트가 지정되어 있지 않을 때를 대비해 기본 HTTP 포트 설정
+  strcpy(port, "8080"); // 포트가 지정되어 있지 않을 때를 대비해 기본 HTTP 포트 설정
 
-  char *p = uri; // uri 구분용 포인터, "http://" 이 없으니 처음부터 시작 (doit()의 line:88 참조.)
-
+  // http://가 있을 때와 없을 때 구분
   if (strstr(uri, "http://"))
-    p = strstr(uri, "http://") + 7;
+
+    // http:// 부터 :까지, /까지, 끝까지 읽음
+    sscanf(uri, "http:// %[^:]: %[^/] %[^\n]", hostname, port, path);
+
   else
-    p += 1;
+    sscanf(uri, "/ %[^:]: %[^/] %[^\n]", hostname, port, path);
 
-  // '/'는 int다..
-  char *p2 = strchr(p, ':'); // p2는 포트 시작지점 포인터
-
-  // 포트번호가 uri안에 있을 때
-  if (p2 != NULL)
-  {
-    *p2 = '\0';                // 포트 번호 시작 지점에서 문자열 분리
-    sscanf(p, "%s", hostname); // 호스트네임 파싱
-
-    char *p3 = strchr(p2 + 1, '/'); // p2는 포트 시작지점 포인터
-    *p3 = '\0';
-
-    sscanf(p2 + 1, "%s", port); // '\0' 이후의 포트 번호와 경로(path) 파싱
-    *p3 = '/';
-    sscanf(p3, "%s", path); // '\0' 이후의 포트 번호와 경로(path) 파싱
-  }
-
-  else // 포트번호가 없을 때
-  {
-    p2 = strstr(p, "/"); // p2는 경로 시작지점 포인터
-
-    if (p2 != NULL)
-    {
-      *p2 = '\0';                // 경로 시작 지점에서 문자열 분리
-      sscanf(p, "%s", hostname); // 호스트네임 파싱
-
-      *p2 = '/';              // 원래 문자열 복원하고
-      sscanf(p2, "%s", path); // 경로 파싱
-    }
-
-    else                         // 경로가 없을 때(호스트네임만 있을 경우)
-      sscanf(p, "%s", hostname); // 호스트네임만 파싱
-  }
   return;
 }
 
