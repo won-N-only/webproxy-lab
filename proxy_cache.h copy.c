@@ -53,42 +53,42 @@ void free_r_info(struct request_info *r_info);
 #define GOTCHA printf("GOTCHA!\n");
 #endif
 
-// int main(int argc, char **argv)
-// {
-//   /* Variables */
-//   int listenfd, connfd;
-//   int *connfd_ptr;
-//   int rc;
-//   pthread_t tid;
-//   socklen_t clientlen;
-//   struct sockaddr_storage clientaddr;
+int main(int argc, char **argv)
+{
+  /* Variables */
+  int listenfd, connfd;
+  int *connfd_ptr;
+  int rc;
+  pthread_t tid;
+  socklen_t clientlen;
+  struct sockaddr_storage clientaddr;
 
-//   signal(SIGPIPE, SIG_IGN);
-//   /* Check command line args */
-//   if (argc != 2)
-//   {
-//     fprintf(stderr, "usage: %s <port>\n", argv[0]);
-//     exit(1);
-//   }
-//   /* Block SIGPIPE signal*/
-//   init_cache();
-//   /* init lock */
-//   rc = pthread_rwlock_init(&cache_rwlock, NULL);
-//   debugprintf("init lock return %d\n", rc);
+  signal(SIGPIPE, SIG_IGN);
+  /* Check command line args */
+  if (argc != 2)
+  {
+    fprintf(stderr, "usage: %s <port>\n", argv[0]);
+    exit(1);
+  }
+  /* Block SIGPIPE signal*/
+  init_cache();
+  /* init lock */
+  rc = pthread_rwlock_init(&cache_rwlock, NULL);
+  debugprintf("init lock return %d\n", rc);
 
-//   /* Client length */
-//   listenfd = Open_listenfd(argv[1]);
-//   while (1)
-//   {
-//     clientlen = sizeof(clientaddr);
-//     connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+  /* Client length */
+  listenfd = Open_listenfd(argv[1]);
+  while (1)
+  {
+    clientlen = sizeof(clientaddr);
+    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
 
-//     /* Parse connection's fd to threads */
-//     connfd_ptr = Malloc(sizeof(void *));
-//     *connfd_ptr = connfd;
-//     Pthread_create(&tid, NULL, doit, connfd_ptr);
-//   }
-// }
+    /* Parse connection's fd to threads */
+    connfd_ptr = Malloc(sizeof(void *));
+    *connfd_ptr = connfd;
+    Pthread_create(&tid, NULL, doit, connfd_ptr);
+  }
+}
 
 /*
  * doit - thread routine to handle each request
@@ -184,8 +184,11 @@ int forward_cache(int fd, struct request_info *r_info, char *header_buf)
 
   if (rc == FOUND)
   {
-    Rio_writen(fd, result_cache->header, strlen(result_cache->header))
-        Rio_writen(fd, result_cache->content, result_cache->block_size)
+    Rio_writen(fd, result_cache->header,
+               strlen(result_cache->header))
+
+        Rio_writen(fd, result_cache->content,
+                   result_cache->block_size)
   }
 
   if (!rc)

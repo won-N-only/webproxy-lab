@@ -3,14 +3,6 @@
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
 
-#ifndef NO_ENOUGH_SPACE
-#define FOUND 1
-#define NO_ENOUGH_SPACE 2
-#define NO_FOUND 3
-#define EMPTY_CACHE 4
-#define RIO_ERROR 5
-#endif
-
 typedef struct cache_node
 {
 	char *hostname;
@@ -57,34 +49,39 @@ int check_available(size_t new_size)
 {
 	if (list->available_size >= new_size)
 		return 1;
-
 	else
 		return 0;
 }
 
 // 캐시리스트 읽음
-int search_cache(char *hostname, char *path,
-				 struct cache_node **p)
+int search_cache(char *hostname, char *path, struct cache_node **p)
 {
 	// 리스트가 비어있으면
 	if ((list->head) == NULL)
-		return EMPTY_CACHE;
+		return 0;
 
 	// 리스트 완전탐색하면서 hostname, path 같은것 찾음
-	struct cache_node *search_cache = list->head;
-	while (search_cache != NULL)
+	struct cache_node *node = list->head;
+	while (node != NULL)
 	{
-		if (!strcmp(search_cache->hostname, hostname))
+		if (!strcmp(node->hostname, hostname))
 		{
-			if (!strcmp(search_cache->path, path))
+			if (!strcmp(node->path, path))
 			{
-				*p = search_cache;
-				return FOUND;
+				// cache 사용 갱신
+				node->prev->next = node->next;
+				node->next->prev = node->prev;
+				list->head->next->prev = node;
+				node->prev = list->head;
+				node->next = list->head->next;
+
+				*p = node;
+				return 1;
 			}
 		}
-		search_cache = search_cache->next;
+		node = node->next;
 	}
-	return NO_FOUND;
+	return 0;
 }
 
 // 삽입노드 생성
@@ -109,28 +106,20 @@ struct cache_node *create_node(char *hostname, char *path,
 // 생성한 노드 삽입
 void insert_node(struct cache_node *node)
 {
-	// list의 제일 앞으로 감
 	struct cache_node *posi = list->head;
 
-	// 리스트가 비어있지 않을 때
 	if (posi != NULL)
 	{
 		posi->prev = node;
 		node->next = posi;
-		node->prev = NULL;
-		list->head = node;
 	}
-
-	// 비어있을 때
-	else
+	node->prev = NULL;
+	list->head = node;
+	if (list->foot == NULL)
 	{
-		list->head = node;
 		list->foot = node;
-		node->prev = NULL;
-		node->next = NULL;
 	}
 
-	// 캐시 가용 공간 재조정
 	list->available_size -= node->size;
 }
 
@@ -161,7 +150,6 @@ void delete_node(struct cache_node *node)
 
 		// 분리 됐으니 free
 		free_node(node);
-		Free(node);
 
 		// 캐시 가용 공간 재조정
 		list->available_size += size;
@@ -183,7 +171,7 @@ void recycle(size_t size)
 	size = 0;
 	size_t total_size = 0;
 
-	while (total_size < size - list->available_size)
+	while (total_size < size - (list->available_size))
 	{
 		size = list->foot->size;
 		delete_node(list->foot);

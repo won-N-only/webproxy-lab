@@ -42,10 +42,10 @@ int main(int argc, char **argv)
   // Open_listenfd는 getaddrinfo, socket, bind, listen 기능을 순차적으로 실행하는 함수
   // listen 소켓 엶
   listenfd = Open_listenfd(argv[1]);
-  
-  //캐시 리스트 초기화
+
+  // 캐시 리스트 초기화
   init_cache();
-  
+
   // 무한 while문으로 서버 항상 열어놓음.(무한 서버 루프)
   while (1)
   {
@@ -91,41 +91,76 @@ void *thread(void *vargp)
 void doit(int cli_connfd)
 {
   rio_t cli_rio, svr_rio;
+  struct cache_node *cached_node;
   int svr_connfd;
   char method[MAXLINE], uri[MAXLINE], version[MAXLINE],
       hostname[MAXLINE], buf[MAXLINE], path[MAXLINE], port[MAXLINE], http_header[MAXLINE];
 
-  // cli요청 송신
-  rio_readinitb(&cli_rio, cli_connfd);
-  if (!rio_readlineb(&cli_rio, buf, MAXLINE))
+  // 클라이언트 요청 읽기
+  Rio_readinitb(&cli_rio, cli_connfd);
+  if (!Rio_readlineb(&cli_rio, buf, MAXLINE))
     return;
 
-  // 요청헤더 method, uri, version에 나눠담음
   sscanf(buf, "%s %s %s", method, uri, version);
 
-  // 파비콘 ^^
   if (strstr(uri, "favicon.ico"))
     return;
 
-  // 에러 처리
+  // 요청 유효성 검사
   error_find(method, uri, version, cli_connfd);
 
-  // uri 파싱
+  // URI 파싱
   parse_uri(uri, hostname, port, path);
 
-  // 서버fd open하고 요청 보냄
-  svr_connfd = Open_clientfd(hostname, port);
-  make_http_header(http_header, hostname, path, &cli_rio);
-  Rio_writen(svr_connfd, http_header, strlen(http_header));
+  // 캐시 검색 시도
+  if (search_cache(hostname, path, &cached_node))
+  {
+    // 캐시된 데이터 보내기
+    Rio_writen(cli_connfd, cached_node->header, strlen(cached_node->header));
+    Rio_writen(cli_connfd, cached_node->content, cached_node->size);
+    return;
+  }
+  else
+  {
+    // 없으면 서버에 요청
+    svr_connfd = Open_clientfd(hostname, port);
+    make_http_header(http_header, hostname, path, &cli_rio);
 
-  // 서버의 응답 받음
-  int n;
-  Rio_readinitb(&svr_rio, svr_connfd);
-  while ((n = Rio_readlineb(&svr_rio, buf, MAXLINE)) != 0)
+    Rio_writen(svr_connfd, http_header, strlen(http_header));
+
+    Rio_readinitb(&svr_rio, svr_connfd);
+
+    char *cache_buf = Malloc(MAX_OBJECT_SIZE); // 객체 크기만큼 메모리 할당
+    int n;
+
+    n = Rio_readnb(&svr_rio, buf, MAXLINE);
+
+    if (n <= MAX_OBJECT_SIZE)
+      memcpy(cache_buf, buf, n);
+
     Rio_writen(cli_connfd, buf, n);
 
-  // 서버fd 닫음
-  Close(svr_connfd);
+    // 응답 캐싱
+    if (n <= MAX_OBJECT_SIZE)
+    {
+      // 최대 객체 크기 이하일 때만 캐시
+      char *header = Malloc(MAXLINE);
+      make_http_header(header, hostname, path, &cli_rio);
+      struct cache_node *new_node = create_node(hostname, path, n, cache_buf, header);
+      if (check_available(n))
+        insert_node(new_node);
+
+      else
+      {
+        recycle(n);
+        insert_node(new_node);
+      }
+      Free(header);
+    }
+
+    Free(cache_buf); // 할당된 메모리 해제
+    Close(svr_connfd);
+  }
 }
 
 // 서버에 보낼 요청 헤더 만듦
