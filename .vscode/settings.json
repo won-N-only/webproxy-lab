@@ -3,6 +3,7 @@
         "csapp.h": "c",
         "stdio.h": "c",
         "stddef.h": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "proxy_cache.h": "c"
     }
 }

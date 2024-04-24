@@ -1,217 +1,285 @@
-//////////////////////////////////////주의사항//////////////////////////////////////
-/* 실행 전 반드시 proxy.c, proxy_cache.h 두 파일을 전부 받아주세요.*/
 #include "proxy_cache.h"
-#include <stdio.h>
-
-//////////////////////////////////////전역변수 선언부//////////////////////////////////////
-/* Recommended max cache and object sizes */
-#define MAX_CACHE_SIZE 1049000
-#define MAX_OBJECT_SIZE 102400
-
-/* You won't lose style points for including this long line in your code */
-static const char *user_agent_header =
-    "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
-    "Firefox/10.0.3\r\n";
-
-//////////////////////////////////////함수 선언부//////////////////////////////////////
-void *thread(void *vargp);
-void doit(int connfd);
-void parse_uri(char *uri, char *hostname, char *path, char *port);
-void make_http_header(char *http_header, char *hostname, char *path, rio_t *client_rio);
-void error_find(char *method, char *uri, char *version, int fd);
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
-
-//////////////////////////////////////코드 시작//////////////////////////////////////
 
 int main(int argc, char **argv)
 {
-  int listenfd, *cli_connfd;
-  char hostname[MAXLINE], port[MAXLINE];
+  int listenfd, connfd;
+  int *connfd_ptr;
+  int rc;
+  pthread_t tid;
   struct sockaddr_storage clientaddr;
   socklen_t clientlen = sizeof(clientaddr);
-  pthread_t tid;
-  printf("%s", user_agent_header);
 
-  // argc는 인자의 갯수를 나타냄. argc!=2면 (ip,port)가 제대로 들어온게 아니므로 exit
   if (argc != 2)
   {
     fprintf(stderr, "usage: %s <port>\n", argv[0]);
     exit(1);
   }
 
-  // Open_listenfd는 getaddrinfo, socket, bind, listen 기능을 순차적으로 실행하는 함수
-  // listen 소켓 엶
-  listenfd = Open_listenfd(argv[1]);
-
   // 캐시 리스트 초기화
   init_cache();
 
-  // 무한 while문으로 서버 항상 열어놓음.(무한 서버 루프)
+  listenfd = Open_listenfd(argv[1]);
   while (1)
   {
-    // 클라이언트와 통신하는 소켓 만들고 정보 얻음
-    cli_connfd = Malloc(sizeof(int));
-    *cli_connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+    connfd_ptr = Malloc(sizeof(void *));
+    *connfd_ptr = connfd;
 
-    // clientaddr의 구조체에 대응되는 hostname, port를 작성
-    Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-    printf("Accepted connection from (%s, %s)\n", hostname, port);
-
-    // 쓰레드 생성해서 tid와 연결
-    // tid에 연결된 쓰레드로 thread함수를 실행 + arg는 connfd
-    Pthread_create(&tid, NULL, thread, cli_connfd);
+    // 쓰레드 할때 Pthread 안만들고 doit에 넣음
+    Pthread_create(&tid, NULL, doit, connfd_ptr);
   }
-  return 0;
 }
 
-// 동시 작업 위해 쓰레드 사용, CS:APP_pic_12.14 참조.
-void *thread(void *vargp)
+void *doit(void *connfd_ptr)
 {
-  // connfd 가져옴
-  int cli_connfd = *((int *)vargp);
+  // 멀티쓰레드를위함//
+  int fd = *(int *)connfd_ptr;
+  Pthread_detach(Pthread_self());
+  Free(connfd_ptr);
+  int rc;
+  char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE],
+      hostname[MAXLINE], path[MAXLINE], port[MAXLINE];
+  char header_buf[MAXLINE];
+  rio_t rio;
+  request_info *req_info;
 
-  // 현재 thread detach함.
-  /* 디태치 상태의 쓰레드는 종료 시 자원을 자동으로 해제하고 쓰레드가 종료되어도 다른 쓰레드가 join을 호출할 필요가 없습니다.*/
-  Pthread_detach(pthread_self());
+  req_info = Malloc(sizeof(request_info));
 
-  // fd 가져왔으니 vargp free.
-  Free(vargp);
+  // 클라이언트의 요청 읽음
+  Rio_readinitb(&rio, fd);
+  if (!Rio_readlineb(&rio, buf, MAXLINE))
+  {
+    Free(req_info);
+    Close(fd);
+    return NULL;
+  }
 
-  // 쓰레드에서 doit 실행
-  doit(cli_connfd);
+  // 요청을 method, uri, version로 나눔
+  // 세개 완벽하게 안들어오면 컷
+  sscanf(buf, "%s %s %s", method, uri, version);
 
-  // 통신 한번 끝났으니 소켓 닫음
-  Close(cli_connfd);
+  // uri 파싱
+  parse_uri(fd, method, uri, version, req_info);
+
+  // 캐시에 있으면 찾은 뒤 보냄
+  rc = forward_cache(fd, req_info, header_buf);
+
+  // 캐시에 없으면
+  if (rc == 0)
+    handle_connection(fd, req_info, header_buf);
+
+  // 요청 정보 지움
+  free_req_info(req_info);
+  Free(req_info);
+
+  Close(fd);
 
   return NULL;
 }
 
-// 클라이언트에게서 받은 요청을 서버로 보내고
-// 서버에서 온 응답을 클라이언트에게 보냄
-void doit(int cli_connfd)
+// 클라이언트에게 캐시 전송
+// 전송할 수 있으면 캐시 위치 갱신함
+int forward_cache(int fd, struct request_info *req_info, char *header_buf)
 {
-  rio_t cli_rio, svr_rio;
-  struct cache_node *cached_node;
-  int svr_connfd;
-  char method[MAXLINE], uri[MAXLINE], version[MAXLINE],
-      hostname[MAXLINE], buf[MAXLINE], path[MAXLINE], port[MAXLINE], http_header[MAXLINE];
+  struct cache_node *result_cache;
+  int idx;
+  char key[100];
 
-  // 클라이언트 요청 읽기
-  Rio_readinitb(&cli_rio, cli_connfd);
-  if (!Rio_readlineb(&cli_rio, buf, MAXLINE))
-    return;
+  // 캐시 찾기 위해서 key에 (hostname+port)담음
+  make_key(req_info->hostname, req_info->port, key);
 
-  sscanf(buf, "%s %s %s", method, uri, version);
+  // 캐시 유무 검사 후 있으면 1 반환
+  idx = search_cache(key, req_info->uri, &result_cache);
 
-  if (strstr(uri, "favicon.ico"))
-    return;
+  // 캐시에 없으면 컷
+  if (!idx)
+    return 0;
 
-  // 요청 유효성 검사
-  error_find(method, uri, version, cli_connfd);
-
-  // URI 파싱
-  parse_uri(uri, hostname, port, path);
-
-  // 캐시 검색 시도
-  if (search_cache(hostname, path, &cached_node))
+  // 캐시에 있으면 보냄
+  if (idx)
   {
-    // 캐시된 데이터 보내기
-    Rio_writen(cli_connfd, cached_node->header, strlen(cached_node->header));
-    Rio_writen(cli_connfd, cached_node->content, cached_node->size);
+    Rio_writen(fd, result_cache->header,
+               strlen(result_cache->header));
+    Rio_writen(fd, result_cache->content,
+               result_cache->block_size);
     return;
   }
+  return 0;
+}
+
+// 서버에서 응답 받고 클라이언트로 전달
+// 응답을 캐시에 저장
+void handle_connection(int connfd, struct request_info *req_info, char *header_buf)
+{
+  int svrfd, cannot_cache, read_size, totla_size;
+  char *host, *uri, *port, key[MAXLINE], buf[MAXLINE],
+      cache_header_buf[MAXLINE], cache_content_buf[MAX_OBJECT_SIZE];
+  rio_t rio;
+
+  // 요청 변수화
+  host = req_info->hostname;
+  uri = req_info->uri;
+
+  // 포트 없으면기본포트 8080으로 지정
+  if (req_info->port[0] == '\0')
+    port = "8080";
   else
+    port = req_info->port;
+
+  // hostname, port로 key 만듦
+  make_key(req_info->hostname, req_info->port, key);
+
+  svrfd = Open_clientfd(host, port);
+  Rio_readinitb(&rio, svrfd);
+
+  // 요청헤더 전송
+  sprintf(buf, "%s %s %s\r\n", "GET", uri, "HTTP/1.0");
+  sprintf(buf, "%sHost: %s\r\n", buf, key);
+  sprintf(buf, "%s%s\r\n", buf, header_buf);
+  Rio_writen(svrfd, buf, strlen(buf));
+  //////////////////////////////////////요청 종료/////////////////////////////////////
+
+  //////////////////////////////////////응답 시작/////////////////////////////////////
+
+  // 문자열이 끝날때까지 응답 헤더 수신
+  Rio_readlineb(&rio, buf, MAXLINE);
+  while (strcmp(buf, "\r\n"))
   {
-    // 없으면 서버에 요청
-    svr_connfd = Open_clientfd(hostname, port);
-    make_http_header(http_header, hostname, path, &cli_rio);
+    // 버퍼에 문자열 삽입
+    sprintf(cache_header_buf, "%s%s", cache_header_buf, buf);
+    Rio_readlineb(&rio, buf, MAXLINE);
+  }
 
-    Rio_writen(svr_connfd, http_header, strlen(http_header));
+  // 문자열 끝 표시위해 \r\n삽입
+  sprintf(cache_header_buf, "%s\r\n", cache_header_buf);
 
-    Rio_readinitb(&svr_rio, svr_connfd);
+  // 응답헤더 송신
+  Rio_writen(connfd, cache_header_buf, strlen(cache_header_buf));
 
-    char *cache_buf = Malloc(MAX_OBJECT_SIZE); // 객체 크기만큼 메모리 할당
-    int n;
+  // 응답 본문 수신
+  totla_size = 0;
+  cannot_cache = 0;
 
-    n = Rio_readnb(&svr_rio, buf, MAXLINE);
+  // 파일크기가 MAXLINE보다 클걸 대비해 while(readnb) 사용
+  while (1)
+  {
+    // 서버에서 읽어오고 buf에 쓰고
+    read_size = Rio_readnb(&rio, buf, MAXLINE);
+    Rio_writen(connfd, buf, read_size);
 
-    if (n <= MAX_OBJECT_SIZE)
-      memcpy(cache_buf, buf, n);
+    // buf에 쓴거 캐싱함
+    // 전체 크기가 max_obj_size보다 크면 캐싱못해
+    totla_size += read_size;
+    if (totla_size > MAX_OBJECT_SIZE)
+      cannot_cache = 1;
 
-    Rio_writen(cli_connfd, buf, n);
-
-    // 응답 캐싱
-    if (n <= MAX_OBJECT_SIZE)
+    // 작으면 가능
+    else
     {
-      // 최대 객체 크기 이하일 때만 캐시
-      char *header = Malloc(MAXLINE);
-      make_http_header(header, hostname, path, &cli_rio);
-      struct cache_node *new_node = create_node(hostname, path, n, cache_buf, header);
-      if (check_available(n))
-        insert_node(new_node);
-
-      else
-      {
-        recycle(n);
-        insert_node(new_node);
-      }
-      Free(header);
+      void *ptr = (void *)((char *)(cache_content_buf) + totla_size - read_size);
+      memcpy(ptr, buf, read_size);
     }
 
-    Free(cache_buf); // 할당된 메모리 해제
-    Close(svr_connfd);
+    // 다 읽어왔으면
+    if (read_size == 0)
+      break;
+  }
+  Close(svrfd);
+
+  //////////////////////////////////////응답 종료/////////////////////////////////////
+
+  //////////////////////////////////////캐싱 시작/////////////////////////////////////
+
+  // 서버 요청 이상하면 컷
+  if (totla_size <= 0)
+    return;
+
+  // 캐싱 가능하면
+  if (!cannot_cache)
+  {
+    // 캐시 저장 위치 포인터로 불러옴
+    struct cache_node *new_cache =
+        create_node(key, uri, totla_size,
+                    cache_content_buf, cache_header_buf);
+
+    // 파일 크기가 캐시 리스트에 들어갈 수 있으면 바로 삽입
+    if (check_available(totla_size))
+      insert_node(new_cache);
+
+    // 파일 크기가 캐시 리스트 가용 크기를 초과하면
+    else
+    {
+      // 삭제 후 삽입
+      cutcutcut(totla_size);
+      insert_node(new_cache);
+    }
+  }
+  return;
+}
+
+// 캐시 찾기위해 호스트, 포트번호 합침
+// host =naver.com, port=8080 이면, result=naver.com:8080이 됨
+void make_key(char *host, char *port, char *result)
+{
+  size_t needed;
+
+  // 포트번호 없으면 포트없이 저장
+  if ((port)[0] == '\0')
+    strcpy(result, host);
+  else
+  {
+    // snprintf로 문자열의 총 길이 needed에 담음
+    needed = snprintf(NULL, 0, "%s:%s", host, port);
+
+    // result에 host+port(cache key) 저장
+    char buf[needed];
+    snprintf(result, needed + 1, "%s:%s", host, port);
   }
 }
 
-// 서버에 보낼 요청 헤더 만듦
-void make_http_header(char *http_header, char *hostname, char *path, rio_t *client_rio)
+// 요청 보내고 나서 req_info 지움
+void free_req_info(struct request_info *req_info)
 {
-  char buf[MAXLINE], request_header[MAXLINE], other_header[MAXLINE], host_header[MAXLINE];
-
-  // 인자 합침
-  sprintf(request_header, "GET %s HTTP/1.0\r\n", path);
-
-  // host 찾아서 host_header에 쓰기
-  Rio_readlineb(client_rio, buf, MAXLINE);
-  if (!strncasecmp(buf, "HOST", strlen("HOST")))
-    strcpy(host_header, buf);
-
-  // 만약 host 못찾았으면 hostname에서 들고옴
-  if (strlen(host_header) == 0)
-    sprintf(host_header, "Host: %s\r\n", hostname);
-
-  // 더 좋은 방법없나  ...
-  sprintf(http_header, "%s%s%s%s%s%s",
-          request_header,
-          host_header,
-          "Connection: close\r\n",
-          "Proxy-Connection: close\r\n",
-          user_agent_header,
-          "\r\n");
-
-  return;
+  if (req_info->hostname[0] != '\0')
+    Free(req_info->hostname);
+  if (req_info->port[0] != '\0')
+    Free(req_info->port);
+  if (req_info->uri[0] != '\0')
+    Free(req_info->uri);
 }
+//////////////////////////////////////기타 함수 부분/////////////////////////////////////
 
-void parse_uri(char *uri, char *hostname, char *port, char *path)
-{
-  /*
-  uri는 다음과 같은 구조라 가정함
-  scheme://   사용자  @hostname        :port   /path(경로)         ?query            #fragment
-  https://    sili    @www.naver.com   :80     /forum/questions    ?search=jungle    #search
-  */
+// uri 파싱
+int parse_uri(int fd, char *method, char *url,
+              char *version, struct request_info *req_info)
+{ /*
+ uri는 다음과 같은 구조라 가정함
+ scheme://   사용자  @hostname        :port   /path(경로)         ?query            #fragment
+ https://    sili    @www.naver.com   :80     /forum/questions    ?search=jungle    #search
+ */
+  char hostname[100] = {0};
+  char port[10] = "8080";  // 기본 포트
+  char uri[MAXLINE] = "/"; // 기본 URI
+  char path[MAXLINE] = {0};
 
-  strcpy(port, "8080"); // 포트가 지정되어 있지 않을 때를 대비해 기본 HTTP 포트 설정
+  // URL에서 hostname, port, path를 추출
+  if (sscanf(url, "http://%99[^:]:%9[^/]/%s", hostname, port, path) < 1)
+  {
+    return 0; // URL 형식이 맞지 않으면 0 반환
+  }
 
-  // http://가 있을 때와 없을 때 구분
-  if (strstr(uri, "http://"))
+  // URI 생성
+  if (path[0] != '\0')
+  {
+    snprintf(uri, MAXLINE, "/%s", path); // 경로가 있으면 URI를 업데이트
+  }
 
-    // http:// 부터 :까지, /까지, 끝까지 읽음
-    sscanf(uri, "http:// %[^:]: %[^/] %[^\n]", hostname, port, path);
+  // 파싱한 데이터를 req_info에 저장함
+  req_info->hostname = strdup(hostname);
+  req_info->port = strdup(port);
+  req_info->uri = strdup(uri);
 
-  else
-    sscanf(uri, "/ %[^:]: %[^/] %[^\n]", hostname, port, path);
-
-  return;
+  return 1;
 }
 
 // 에러의 종류 식별

@@ -1,180 +1,203 @@
+//////////////////////////////////////헤더 및 전처리문/////////////////////////////////////
+#include <stddef.h>
+#include <stdio.h>
 #include "csapp.h"
 
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
 
+//////////////////////////////////////캐시 관련 함수/////////////////////////////////////
+
+// 캐시 저장 노드 구성
 typedef struct cache_node
 {
 	char *hostname;
-	char *path;
+	char *uri;
 	char *header;
-	size_t size;
+	size_t block_size;
 	char *content;
-
 	struct cache_node *prev;
 	struct cache_node *next;
 } cache_node;
 
+//
 typedef struct cache_list
 {
-	struct cache_node *head;
-	struct cache_node *foot;
+	struct cache_node *next;
 	size_t available_size;
 } cache_list;
-
-struct cache_node *create_node(char *hostname, char *path,
-							   size_t size, char *buf, char *cache_header);
-void init_cache();
-int check_available(size_t new_size);
-int search_cache(char *hostname, char *path,
-				 struct cache_node **p);
-void insert_node(struct cache_node *node);
-void delete_node(struct cache_node *node);
-void recycle(size_t size);
-void free_node(struct cache_node *node);
-
-// 캐시 리스트 초기화
+struct cache_node *list_end;
 struct cache_list *list;
+
+void init_cache();
+int check_available(size_t size);
+int search_cache(char *hostname, char *uri,
+				 struct cache_node **cache_ptr);
+struct cache_node *create_node(char *hostname, char *uri,
+							   size_t object_size, char *object_buf, char *header);
+void insert_node(struct cache_node *new_node);
+void delete_node(struct cache_node *delete_node);
+void cutcutcut(size_t size);
+void free_node_var(struct cache_node *delete_node);
+
+// 캐시 리스트 선언
 void init_cache()
 {
 	list = (struct cache_list *)malloc(sizeof(struct cache_list));
 
 	list->available_size = MAX_CACHE_SIZE;
-	list->head = NULL;
-	list->foot = NULL;
+	list->next = NULL;
+	list_end = NULL;
 }
 
-// 캐시 공간에 들어가나 체크
-int check_available(size_t new_size)
+// 가용 공간 크기 확인
+int check_available(size_t size)
 {
-	if (list->available_size >= new_size)
+	if ((list->available_size) >= size)
 		return 1;
+
 	else
 		return 0;
 }
 
-// 캐시리스트 읽음
-int search_cache(char *hostname, char *path, struct cache_node **p)
+// 캐시 리스트에 있는지 찾음
+int search_cache(char *hostname, char *uri,
+				 struct cache_node **cache_ptr)
 {
-	// 리스트가 비어있으면
-	if ((list->head) == NULL)
+	// 비어있으면
+	if ((list->next) == NULL)
 		return 0;
 
-	// 리스트 완전탐색하면서 hostname, path 같은것 찾음
-	struct cache_node *node = list->head;
-	while (node != NULL)
+	// 리스트 완전 탐색
+	struct cache_node *search_cache = list->next;
+	while (search_cache != NULL)
 	{
-		if (!strcmp(node->hostname, hostname))
+		if (!strcmp(search_cache->hostname, hostname))
 		{
-			if (!strcmp(node->path, path))
+			if (!strcmp(search_cache->uri, uri))
 			{
-				// cache 사용 갱신
-				node->prev->next = node->next;
-				node->next->prev = node->prev;
-				list->head->next->prev = node;
-				node->prev = list->head;
-				node->next = list->head->next;
-
-				*p = node;
+				*cache_ptr = search_cache;
 				return 1;
 			}
 		}
-		node = node->next;
+		search_cache = search_cache->next;
 	}
 	return 0;
 }
 
-// 삽입노드 생성
-struct cache_node *create_node(char *hostname, char *path,
-							   size_t size, char *buf, char *cache_header)
+// 캐시 저장하기 전 노드 만들기
+struct cache_node *create_node(char *hostname, char *uri,
+							   size_t object_size, char *object_buf, char *cache_header)
 {
-	// 삽입 노드만큼 메모리공간 확보
-	struct cache_node *new_node = malloc(sizeof(struct cache_node));
-
-	// 삽입노드 초기화(by string duplicate)
-	new_node->hostname = strdup(hostname);
-	new_node->path = strdup(path);
-	new_node->header = strdup(cache_header);
-	new_node->size = size;
-	new_node->content = malloc(size);
-
-	// content에 buf 내용 옮김
-	memcpy(new_node->content, buf, size);
-	return new_node;
+	struct cache_node *new_cache_node = malloc(sizeof(struct cache_node));
+	new_cache_node->hostname = strdup(hostname);
+	new_cache_node->uri = strdup(uri);
+	new_cache_node->header = strdup(cache_header);
+	new_cache_node->block_size = object_size;
+	new_cache_node->content = malloc(object_size);
+	memcpy(new_cache_node->content, object_buf, object_size);
+	return new_cache_node;
 }
 
-// 생성한 노드 삽입
-void insert_node(struct cache_node *node)
+// 만든 노드 삽입
+void insert_node(struct cache_node *new_node)
 {
-	struct cache_node *posi = list->head;
+	// 노드 삽입위해 firstnode 지정
+	struct cache_node *fist_node = list->next;
 
-	if (posi != NULL)
+	// list가 차있으면
+	if (fist_node != NULL)
 	{
-		posi->prev = node;
-		node->next = posi;
-	}
-	node->prev = NULL;
-	list->head = node;
-	if (list->foot == NULL)
-	{
-		list->foot = node;
+		fist_node->prev = new_node;
+		new_node->next = fist_node;
+		new_node->prev = NULL;
+		list->next = new_node;
 	}
 
-	list->available_size -= node->size;
+	// list가 없으면
+	else
+	{
+		list->next = new_node;
+		list_end = new_node;
+		new_node->prev = NULL;
+		new_node->next = NULL;
+	}
+
+	list->available_size -= new_node->block_size;
 }
 
 // 노드 삭제
 void delete_node(struct cache_node *node)
 {
-	size_t size = node->size;
-
-	// 리스트에서 노드 분리 후 free
-	struct cache_node *prev_node = node->prev;
+	size_t size = node->block_size;
+	struct cache_node *previous_node = node->prev;
 	struct cache_node *next_node = node->next;
 
-	// 이전 노드가 존재할 때
-	if (prev_node != NULL)
+	if (previous_node != NULL)
 	{
-		prev_node->next = next_node;
+		previous_node->next = next_node;
 
-		// 다음 노드 존재할 때
 		if (next_node != NULL)
-			next_node->prev = prev_node;
+			next_node->prev = previous_node;
 
-		// 다음 노드 없을 때
 		else
-		{
-			prev_node->next = NULL;
-			list->foot = prev_node;
-		}
-
-		// 분리 됐으니 free
-		free_node(node);
-
-		// 캐시 가용 공간 재조정
-		list->available_size += size;
+			list_end = previous_node;
 	}
+
+	// 노드의 구성요소 전부 free 후 노드 free
+	free_node_var(node);
+	Free(node);
+
+	// 캐시 list 가용 공간 재조정
+	list->available_size += size;
 }
 
-// 노드 전체 free
-void free_node(struct cache_node *node)
+// 노드 구성요소 전부 free
+void free_node_var(struct cache_node *node)
 {
 	Free(node->hostname);
-	Free(node->path);
+	Free(node->uri);
 	Free(node->content);
 	Free(node->header);
 }
 
-// cache공간이 꽉 찼을 때 삭제함
-void recycle(size_t size)
+// 캐시 리스트 다 차면 가장 오래전에  쓴것 부터 삭제
+void cutcutcut(size_t size)
 {
-	size = 0;
-	size_t total_size = 0;
-
-	while (total_size < size - (list->available_size))
+	// 뒤에서 부터 지워나감
+	size_t del_size = 0;
+	size_t total_del_size = 0;
+	while (total_del_size < (size - list->available_size))
 	{
-		size = list->foot->size;
-		delete_node(list->foot);
-		total_size += size;
+		del_size = list_end->block_size;
+		delete_node(list_end);
+		total_del_size += del_size;
 	}
 }
+
+//////////////////////////////////////선언부/////////////////////////////////////
+
+// 헤더 모아서 보내는 용도의 구조체
+typedef struct request_info
+{
+	char *hostname;
+	char *method;
+	char *port;
+	char *uri;
+} request_info;
+
+/* You won't lose style points for including this long line in your code */
+static const char *user_agent_header =
+	"User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
+	"Firefox/10.0.3\r\n";
+
+void *doit(void *connfd_ptr);
+void clienterror(int fd, char *cause, char *errnum,
+				 char *shortmsg, char *longmsg);
+void read_requesthdrs(rio_t *rp, char *header_buf);
+int parse_uri(int fd, char *method, char *url,
+			  char *version, struct request_info *r_info);
+void handle_connection(int fd, struct request_info *r_info, char *header_buf);
+int forward_cache(int fd, struct request_info *r_info, char *header_buf);
+void handle_hostname(char *host, char *port, char *result);
+void free_r_info(struct request_info *r_info);
