@@ -1,3 +1,32 @@
+/*
+ * ================================================
+ * 사용 설명서
+ * ================================================
+ *
+ * 1. 기능 설명:
+ *    - HTTP/1.0 기반의 간단한 GET, HEAD 요청 처리
+ *    - 멀티쓰레드를 이용한 동시 요청 처리
+ *    - 캐시 처리 지원
+ *    - 잘못된 요청에 대해 클라이언트에 에러 메시지 전송()
+ *
+ * 2. 주요 함수:
+ *    - Open_listenfd, Accept: 서버 소켓 준비 및 클라이언트 연결 수락
+ *    - doit: 각 클라이언트 요청 및 캐싱 처리
+ *    - send_cache_to_cli, foward_response: 캐시 응답 및 서버 요청/응답 처리
+ *    - clienterror, find_error: 에러 발생 시 클라이언트에게 전송할 HTTP 에러 메시지 생성
+ *
+ *  3. 사용 방법:
+ *     브라우저에 다음 주소 입력.
+ *     - http://localhost:${proxy_port}/localhost:${server_port}/home.html
+ *     - http://localhost:${proxy_port}/localhost:${server_port}/adder.html
+ *
+ *  4. 미구현 사항:
+ *     - POST method
+ *     - Semaphore, Mutex 등 멀티 스레딩 시 교착상태 해결기능
+ *
+ * ================================================
+ */
+
 #include "proxy_cache.h"
 
 int main(int argc, char **argv)
@@ -286,7 +315,6 @@ int parse_uri(int fd, char *method, char *url,
   // URI 생성
   if (path[0] != '\0')
     snprintf(uri, MAXLINE, "/%s", path); // 경로가 있으면 URI를 업데이트
-
 
   // 파싱한 데이터를 req_info에 저장함
   req_info->hostname = strdup(hostname);
