@@ -58,6 +58,10 @@ void *doit(void *connfd_ptr)
   // 세개 완벽하게 안들어오면 컷
   sscanf(buf, "%s %s %s", method, uri, version);
 
+  // 파비콘 ㅎㅎ
+  if (strstr(uri, "favicon.ico"))
+    return;
+
   // uri 파싱
   parse_uri(fd, method, uri, version, req_info);
 
@@ -96,7 +100,7 @@ int forward_cache(int fd, struct request_info *req_info, char *header_buf)
     return 0;
 
   // 캐시에 있으면 보냄
-  if (idx)
+  else
   {
     Rio_writen(fd, result_cache->header,
                strlen(result_cache->header));
@@ -104,7 +108,6 @@ int forward_cache(int fd, struct request_info *req_info, char *header_buf)
                result_cache->block_size);
     return;
   }
-  return 0;
 }
 
 // 서버에서 응답 받고 클라이언트로 전달
@@ -135,6 +138,7 @@ void handle_connection(int connfd, struct request_info *req_info, char *header_b
   // 요청헤더 전송
   sprintf(buf, "%s %s %s\r\n", "GET", uri, "HTTP/1.0");
   sprintf(buf, "%sHost: %s\r\n", buf, key);
+  sprintf(header_buf, "%s", user_agent_header);
   sprintf(buf, "%s%s\r\n", buf, header_buf);
   Rio_writen(svrfd, buf, strlen(buf));
   //////////////////////////////////////요청 종료/////////////////////////////////////
@@ -214,6 +218,7 @@ void handle_connection(int connfd, struct request_info *req_info, char *header_b
       insert_node(new_cache);
     }
   }
+
   return;
 }
 
@@ -226,6 +231,7 @@ void make_key(char *host, char *port, char *result)
   // 포트번호 없으면 포트없이 저장
   if ((port)[0] == '\0')
     strcpy(result, host);
+
   else
   {
     // snprintf로 문자열의 총 길이 needed에 담음
@@ -247,6 +253,7 @@ void free_req_info(struct request_info *req_info)
   if (req_info->uri[0] != '\0')
     Free(req_info->uri);
 }
+
 //////////////////////////////////////기타 함수 부분/////////////////////////////////////
 
 // uri 파싱
@@ -263,16 +270,19 @@ int parse_uri(int fd, char *method, char *url,
   char path[MAXLINE] = {0};
 
   // URL에서 hostname, port, path를 추출
-  if (sscanf(url, "http://%99[^:]:%9[^/]/%s", hostname, port, path) < 1)
-  {
-    return 0; // URL 형식이 맞지 않으면 0 반환
-  }
+
+  // http:// 있으면   http://부터 :까지,  /까지,  끝까지 읽음
+  if (strstr(url, "http://"))
+
+    sscanf(url, "http:// %[^:]: %[^/] %[^\n]", hostname, port, path);
+
+  // http://없으면 /부터 :까지,  /까지,  끝까지 읽음
+  else
+    sscanf(url, "/ %[^:]: %[^/] %[^\n]", hostname, port, path);
 
   // URI 생성
   if (path[0] != '\0')
-  {
     snprintf(uri, MAXLINE, "/%s", path); // 경로가 있으면 URI를 업데이트
-  }
 
   // 파싱한 데이터를 req_info에 저장함
   req_info->hostname = strdup(hostname);
@@ -287,37 +297,24 @@ void error_find(char *method, char *uri, char *version, int fd)
 {
   // err code는 https://datatracker.ietf.org/doc/html/rfc1945 참고함.
 
-  if ((strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))) // method로 GET말고 다른거 받으면 에러 반환
-  {
+  if ((strcasecmp(method, "GET") && strcasecmp(method, "HEAD"))) // method로 GET, HEAD말고 다른거 받으면 에러 반환
     clienterror(fd, method, "501", "not implemented", "Tiny couldn't implement this method");
-    return;
-  }
 
-  if (strlen(uri) == 0) // uri 잘못됐으면 || (strchr(uri, '/') == NULL 붙이면 왜 ㅏㅇㄴ될까
-  {
+  if (strlen(uri) == 0) // uri 잘못됐으면 || (strchr(uri, '/') == NULL 붙이면 왜 안될까
     clienterror(fd, method, "400", "Bad Request", "The request could not be understood by the server due to malformed uri syntax");
-    return;
-  }
 
   if (strlen(version) == 0) // version 잘못됐으면 || (strchr(version, '/') == NULL
-  {
     clienterror(fd, method, "400", "Bad Request", "The request could not be understood by the server due to malformed version syntax");
-    return;
-  }
 
   // URI 길이 검사(길이 10kB넘으면 뇌절)
   if (strlen(uri) > 10240)
-  {
     clienterror(fd, method, "414", "URI Too Long", "The URI requested is too long for the server to process.");
-    return;
-  }
 
   // 버전 검사
   if (strcmp(version, "HTTP/1.0") && strcmp(version, "HTTP/1.1"))
-  {
     clienterror(fd, method, "505", "HTTP Version Not Supported", "The server does not support, or refuses to support, the HTTP protocol version that was used in the request message.");
-    return;
-  }
+
+  return;
 }
 
 // 에러 메시지를 클라이언트에게 전송

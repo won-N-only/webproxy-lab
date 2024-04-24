@@ -1,6 +1,9 @@
 //////////////////////////////////////헤더 및 전처리문/////////////////////////////////////
 #include <stddef.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include "csapp.h"
 
 #define MAX_CACHE_SIZE 1049000
@@ -43,7 +46,7 @@ void free_node_var(struct cache_node *delete_node);
 // 캐시 리스트 선언
 void init_cache()
 {
-	list = (struct cache_list *)malloc(sizeof(struct cache_list));
+	list = (struct cache_list *)Malloc(sizeof(struct cache_list));
 
 	list->available_size = MAX_CACHE_SIZE;
 	list->next = NULL;
@@ -89,12 +92,12 @@ int search_cache(char *hostname, char *uri,
 struct cache_node *create_node(char *hostname, char *uri,
 							   size_t object_size, char *object_buf, char *cache_header)
 {
-	struct cache_node *new_cache_node = malloc(sizeof(struct cache_node));
+	struct cache_node *new_cache_node = Malloc(sizeof(struct cache_node));
 	new_cache_node->hostname = strdup(hostname);
 	new_cache_node->uri = strdup(uri);
 	new_cache_node->header = strdup(cache_header);
 	new_cache_node->block_size = object_size;
-	new_cache_node->content = malloc(object_size);
+	new_cache_node->content = Malloc(object_size);
 	memcpy(new_cache_node->content, object_buf, object_size);
 	return new_cache_node;
 }
@@ -174,6 +177,8 @@ void cutcutcut(size_t size)
 		total_del_size += del_size;
 	}
 }
+////////////////////////////////슬립락(멀티쓰레딩)/////////////////////////////////
+
 
 //////////////////////////////////////선언부/////////////////////////////////////
 
