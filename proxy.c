@@ -107,10 +107,8 @@ int send_cache_to_cli(int fd, struct request_info *req_info, char *header_buf)
   // 캐시에 있으면 보냄
   else
   {
-    Rio_writen(fd, result_cache->header,
-               strlen(result_cache->header));
-    Rio_writen(fd, result_cache->content,
-               result_cache->block_size);
+    Rio_writen(fd, result_cache->header, strlen(result_cache->header));
+    Rio_writen(fd, result_cache->content, result_cache->block_size);
     return;
   }
 }
@@ -279,7 +277,6 @@ int parse_uri(int fd, char *method, char *url,
 
   // http:// 있으면   http://부터 :까지,  /까지,  끝까지 읽음
   if (strstr(url, "http://"))
-
     sscanf(url, "http:// %[^:]: %[^/] %[^\n]", hostname, port, path);
 
   // http://없으면 /부터 :까지,  /까지,  끝까지 읽음
@@ -289,6 +286,7 @@ int parse_uri(int fd, char *method, char *url,
   // URI 생성
   if (path[0] != '\0')
     snprintf(uri, MAXLINE, "/%s", path); // 경로가 있으면 URI를 업데이트
+
 
   // 파싱한 데이터를 req_info에 저장함
   req_info->hostname = strdup(hostname);
