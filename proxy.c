@@ -9,6 +9,7 @@ int main(int argc, char **argv)
   struct sockaddr_storage clientaddr;
   socklen_t clientlen = sizeof(clientaddr);
 
+  // 인자 2개 아니면
   if (argc != 2)
   {
     fprintf(stderr, "usage: %s <port>\n", argv[0]);
@@ -18,6 +19,7 @@ int main(int argc, char **argv)
   // 캐시 리스트 초기화
   init_cache();
 
+  // 클라이언트와 통신할 준비
   listenfd = Open_listenfd(argv[1]);
   while (1)
   {
@@ -65,12 +67,15 @@ void *doit(void *connfd_ptr)
   // uri 파싱
   parse_uri(fd, method, uri, version, req_info);
 
+  // 요청 잘못 들어오면 error 발신
+  error_find(method, uri, version, fd);
+
   // 캐시에 있으면 찾은 뒤 보냄
-  rc = forward_cache(fd, req_info, header_buf);
+  rc = send_cache_to_cli(fd, req_info, header_buf);
 
   // 캐시에 없으면
   if (rc == 0)
-    handle_connection(fd, req_info, header_buf);
+    foward_response(fd, req_info, header_buf);
 
   // 요청 정보 지움
   free_req_info(req_info);
@@ -83,7 +88,7 @@ void *doit(void *connfd_ptr)
 
 // 클라이언트에게 캐시 전송
 // 전송할 수 있으면 캐시 위치 갱신함
-int forward_cache(int fd, struct request_info *req_info, char *header_buf)
+int send_cache_to_cli(int fd, struct request_info *req_info, char *header_buf)
 {
   struct cache_node *result_cache;
   int idx;
@@ -112,7 +117,7 @@ int forward_cache(int fd, struct request_info *req_info, char *header_buf)
 
 // 서버에서 응답 받고 클라이언트로 전달
 // 응답을 캐시에 저장
-void handle_connection(int connfd, struct request_info *req_info, char *header_buf)
+void foward_response(int connfd, struct request_info *req_info, char *header_buf)
 {
   int svrfd, cannot_cache, read_size, totla_size;
   char *host, *uri, *port, key[MAXLINE], buf[MAXLINE],
@@ -132,15 +137,17 @@ void handle_connection(int connfd, struct request_info *req_info, char *header_b
   // hostname, port로 key 만듦
   make_key(req_info->hostname, req_info->port, key);
 
+  // 서버와 통신할 소켓 엶
   svrfd = Open_clientfd(host, port);
   Rio_readinitb(&rio, svrfd);
 
   // 요청헤더 전송
   sprintf(buf, "%s %s %s\r\n", "GET", uri, "HTTP/1.0");
   sprintf(buf, "%sHost: %s\r\n", buf, key);
-  sprintf(header_buf, "%s", user_agent_header);
+  sprintf(header_buf, "%s\r\n", user_agent_header);
   sprintf(buf, "%s%s\r\n", buf, header_buf);
   Rio_writen(svrfd, buf, strlen(buf));
+
   //////////////////////////////////////요청 종료/////////////////////////////////////
 
   //////////////////////////////////////응답 시작/////////////////////////////////////
@@ -203,8 +210,7 @@ void handle_connection(int connfd, struct request_info *req_info, char *header_b
   {
     // 캐시 저장 위치 포인터로 불러옴
     struct cache_node *new_cache =
-        create_node(key, uri, totla_size,
-                    cache_content_buf, cache_header_buf);
+        create_node(key, uri, totla_size, cache_content_buf, cache_header_buf);
 
     // 파일 크기가 캐시 리스트에 들어갈 수 있으면 바로 삽입
     if (check_available(totla_size))
@@ -213,7 +219,7 @@ void handle_connection(int connfd, struct request_info *req_info, char *header_b
     // 파일 크기가 캐시 리스트 가용 크기를 초과하면
     else
     {
-      // 삭제 후 삽입
+      // 삭제해서 공간 확보 후 삽입
       cutcutcut(totla_size);
       insert_node(new_cache);
     }

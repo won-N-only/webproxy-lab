@@ -255,7 +255,7 @@ URI /images/logo.png가 filename에 추가되면 최종 경로는 ./images/logo.
 
     if (uri[strlen(uri) - 1] == '/') // uri가 /로 끝나면 /뒤에 home.html 추가//이거 문제에 활용
 
-      strcat(filename, "home.html"); 
+      strcat(filename, "home.html"); /// 이거왜안대지 ㅜ ㅜ
 
     return -1;
   }

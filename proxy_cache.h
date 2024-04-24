@@ -133,18 +133,18 @@ void insert_node(struct cache_node *new_node)
 void delete_node(struct cache_node *node)
 {
 	size_t size = node->block_size;
-	struct cache_node *previous_node = node->prev;
+	struct cache_node *prev_node = node->prev;
 	struct cache_node *next_node = node->next;
 
-	if (previous_node != NULL)
+	if (prev_node != NULL)
 	{
-		previous_node->next = next_node;
+		prev_node->next = next_node;
 
 		if (next_node != NULL)
-			next_node->prev = previous_node;
+			next_node->prev = prev_node;
 
 		else
-			list_end = previous_node;
+			list_end = prev_node;
 	}
 
 	// 노드의 구성요소 전부 free 후 노드 free
@@ -179,7 +179,6 @@ void cutcutcut(size_t size)
 }
 ////////////////////////////////슬립락(멀티쓰레딩)/////////////////////////////////
 
-
 //////////////////////////////////////선언부/////////////////////////////////////
 
 // 헤더 모아서 보내는 용도의 구조체
@@ -194,15 +193,13 @@ typedef struct request_info
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_header =
 	"User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
-	"Firefox/10.0.3\r\n";
+	"Firefox/10.0.3";
 
 void *doit(void *connfd_ptr);
-void clienterror(int fd, char *cause, char *errnum,
-				 char *shortmsg, char *longmsg);
 void read_requesthdrs(rio_t *rp, char *header_buf);
-int parse_uri(int fd, char *method, char *url,
-			  char *version, struct request_info *r_info);
-void handle_connection(int fd, struct request_info *r_info, char *header_buf);
-int forward_cache(int fd, struct request_info *r_info, char *header_buf);
-void handle_hostname(char *host, char *port, char *result);
+int parse_uri(int fd, char *method, char *url, char *version, struct request_info *r_info);
+int send_cache_to_cli(int fd, struct request_info *r_info, char *header_buf);
+void foward_response(int fd, struct request_info *r_info, char *header_buf);
 void free_r_info(struct request_info *r_info);
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void error_find(char *method, char *uri, char *version, int fd);
