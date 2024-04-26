@@ -3,6 +3,31 @@
 #
 # Student Source Files
 ####################################################################
+proxy webserver submit (score 70)
+
+기능 설명:
+
+HTTP/1.0 기반의 간단한 GET, HEAD 요청 처리
+멀티쓰레드를 이용한 동시 요청 처리
+캐시 처리 지원
+잘못된 요청에 대해 클라이언트에 에러 메시지 전송()
+주요 함수:
+
+Open_listenfd, Accept: 서버 소켓 준비 및 클라이언트 연결 수락
+doit: 각 클라이언트 요청 및 캐싱 처리
+send_cache_to_cli, foward_response: 캐시 응답 및 서버 요청/응답 처리
+clienterror, find_error: 에러 발생 시 클라이언트에게 전송할 HTTP 에러 메시지 생성
+사용 방법:
+브라우저에 다음 주소 입력.
+
+http://localhost:${proxy_port}/localhost:${server_port}/home.html
+http://localhost:${proxy_port}/localhost:${server_port}/adder.html
+미구현 사항:
+
+POST method
+Semaphore, Mutex 등 멀티 스레딩 시 교착상태 해결기능
+//코드 상세 사항은 proxy.c 주석 참고.
+
 
 This directory contains the files you will need for the CS:APP Proxy
 Lab.
